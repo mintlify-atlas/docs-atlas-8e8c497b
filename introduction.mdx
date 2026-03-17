@@ -1,0 +1,96 @@
+---
+title: "Introduction"
+description: "Stockël is a multi-store inventory management platform built for teams that need real-time visibility across locations."
+---
+
+Stockel is a full-stack web application that lets your team track products, manage stock across multiple stores, process purchase orders, record sales, and monitor supplier payments — all from a single interface. It is designed for businesses that operate more than one physical location and need a centralized source of truth for inventory data.
+
+<Info>
+  Stockël is currently a private, internal tool. Self-hosting via Docker is the supported deployment path.
+</Info>
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Multi-store inventory" icon="warehouse">
+    Track stock levels per location. Move products between stores, assign inventory to sales orders, and get notifications when items are released or delivered.
+  </Card>
+  <Card title="Purchase order management" icon="shopping-cart">
+    Create and send purchase orders to suppliers, record partial or complete goods receipts, manage damaged items, and track outstanding payables.
+  </Card>
+  <Card title="Sales tracking" icon="receipt">
+    Log sales movements against product keys and folios. Assign inventory manually to sales and move records to a recycle bin for later review.
+  </Card>
+  <Card title="Supplier management" icon="truck">
+    Maintain a supplier directory with RFC, contact details, and a full history of purchase orders and payment records.
+  </Card>
+  <Card title="Package bundles" icon="package">
+    Compose outlet packages from multiple products, manage approval workflows, and track bundle stock independently from individual components.
+  </Card>
+  <Card title="Role-based access" icon="shield">
+    Assign users to stores and control access at the page level. Invalidate all active sessions instantly by bumping the session version.
+  </Card>
+  <Card title="Email verification & password reset" icon="mail">
+    Built-in flows for account verification and password recovery delivered through a configurable SMTP connection.
+  </Card>
+  <Card title="AI assistant" icon="sparkles">
+    OpenAI integration provides an in-app assistant to help users query inventory data and navigate the platform.
+  </Card>
+</CardGroup>
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js 16 (App Router) |
+| UI library | React 19 |
+| Styling | Tailwind CSS 4 |
+| ORM | Prisma |
+| Database | PostgreSQL 15 |
+| Auth | JWT + bcrypt (custom sessions) |
+| Email | Nodemailer (SMTP) |
+| AI | OpenAI API |
+| reCAPTCHA | Google reCAPTCHA v2 |
+| Containerization | Docker + Docker Compose |
+| CI/CD | GitHub Actions |
+| Reverse proxy | nginx (production) |
+| TLS | Let's Encrypt / Certbot |
+| Host OS | Ubuntu 24.04 LTS |
+
+## Data model overview
+
+The Prisma schema defines the following core entities:
+
+- **User** — platform accounts with per-page permissions and session versioning
+- **Producto** — product catalogue with keys, categories, and cost history
+- **Tienda** — store locations
+- **ProductoEnTienda** — stock movements linking products, stores, and users
+- **Venta** — sales records with folio, delivery date, and status
+- **Proveedor** — supplier directory
+- **OrdenCompra** / **DetalleOrdenCompra** — purchase order headers and line items
+- **Recepcion** / **DetalleRecepcion** — goods receipt records with damage tracking
+- **GestionDano** / **DevolucionMercancia** — damage decisions and return workflows
+- **AsignacionInventario** — manual inventory-to-sale assignments
+- **Paquete** / **ComponentePaquete** — bundle management
+- **PagoOrdenCompra** — supplier payment records
+
+## Security
+
+The Next.js middleware (`src/middleware.ts`) applies the following HTTP security headers to every response:
+
+- `X-Frame-Options: DENY` — prevents clickjacking
+- `Content-Security-Policy: frame-ancestors 'none'`
+- `X-Content-Type-Options: nosniff`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `X-XSS-Protection: 1; mode=block`
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run Stockël locally with Docker Compose in under five minutes.
+  </Card>
+  <Card title="Deployment" icon="server" href="/deployment">
+    Deploy to a VPS with GitHub Actions and nginx.
+  </Card>
+</CardGroup>

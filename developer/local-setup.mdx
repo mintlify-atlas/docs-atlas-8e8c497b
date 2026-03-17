@@ -1,0 +1,253 @@
+---
+title: "Local setup"
+description: "Get Stockël running on your machine using Docker Compose in under ten minutes."
+---
+
+## Prerequisites
+
+Before you start, make sure you have the following installed:
+
+| Tool | Version | Notes |
+|---|---|---|
+| **Docker Desktop** | Latest stable | Includes Docker Compose v2. Required. |
+| **Git** | Any recent | For cloning and committing. |
+| **Node.js** | 20 LTS | Optional — only needed if you want to run scripts or the linter outside Docker. |
+
+<Note>
+  All application services — the Next.js app, PostgreSQL, and (in production) nginx — run inside Docker containers. You do not need Node.js installed locally to run the full application.
+</Note>
+
+## Setup
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone git@github.com:ChrisOmar43/stockel.git
+    cd stockel
+    ```
+
+    If you have not configured SSH with GitHub yet, use HTTPS instead:
+
+    ```bash
+    git clone https://github.com/ChrisOmar43/stockel.git
+    cd stockel
+    ```
+  </Step>
+
+  <Step title="Create your .env file">
+    Copy the example file if one exists, or create `.env` manually in the project root:
+
+    ```bash
+    cp .env.example .env
+    ```
+
+    The minimal set of variables needed for local development:
+
+    ```env
+    DATABASE_URL=postgresql://stockel_user:password123@db:5432/stockel_db
+    POSTGRES_USER=stockel_user
+    POSTGRES_PASSWORD=password123
+    POSTGRES_DB=stockel_db
+    NEXTAUTH_SECRET=local-dev-secret-key-change-this
+    NEXTAUTH_URL=http://localhost:3000
+    JWT_SECRET=local-jwt-secret-change-this
+    ```
+
+    See the [environment variables reference](#environment-variables) below for a full description of every variable.
+
+    <Warning>
+      Never commit your `.env` file to Git. It is already listed in `.gitignore`. Use strong, randomly generated values for `NEXTAUTH_SECRET` and `JWT_SECRET` in any shared or production environment.
+    </Warning>
+  </Step>
+
+  <Step title="Start the containers">
+    ```bash
+    docker compose up -d
+    ```
+
+    This builds the Next.js image (Node 20 Alpine), starts the PostgreSQL 15 container, and connects them on an internal network. The first build takes 2–4 minutes. Subsequent starts are fast.
+
+    Verify both containers are running:
+
+    ```bash
+    docker compose ps
+    ```
+
+    You should see `stockel_app` and `stockel_db` with status `Up`.
+  </Step>
+
+  <Step title="Run database migrations">
+    ```bash
+    docker compose exec app npx prisma migrate dev
+    ```
+
+    This applies all pending migrations from `prisma/migrations/` and generates the Prisma client. In development (`migrate dev`) Prisma also creates a migration file if the schema has drifted.
+
+    <Tip>
+      For production-style migration (no dev prompts, no schema drift detection), use `npx prisma migrate deploy` instead.
+    </Tip>
+  </Step>
+
+  <Step title="Open the application">
+    Navigate to [http://localhost:3000](http://localhost:3000) in your browser.
+
+    The first user you register through the UI will need to be manually promoted to the `admin` role in the database or through the admin panel once another admin exists.
+  </Step>
+</Steps>
+
+## Environment variables
+
+### Core application
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `DATABASE_URL` | Yes | `postgresql://stockel_user:password123@db:5432/stockel_db` | Full PostgreSQL connection string. The hostname `db` matches the Docker Compose service name. |
+| `JWT_SECRET` | Yes | `a-long-random-string` | Secret used to sign and verify the custom JWT session tokens stored in HTTP-only cookies. Falls back to `fallback-secret-change-me-in-production` if unset — **always set this in production**. |
+| `NEXTAUTH_SECRET` | Yes | `another-long-random-string` | Required by the `next-auth` package even when using the custom JWT flow. |
+| `NEXTAUTH_URL` | Yes | `http://localhost:3000` | The canonical URL of the application. Used by NextAuth for callback redirects. |
+| `NEXT_PUBLIC_APP_URL` | No | `http://localhost:3000` | Public base URL exposed to client-side code for building absolute links. |
+
+### Database (PostgreSQL container)
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `POSTGRES_USER` | Yes | `stockel_user` | Username the PostgreSQL container creates on first start. Must match the username in `DATABASE_URL`. |
+| `POSTGRES_PASSWORD` | Yes | `password123` | Password for the PostgreSQL user. Must match `DATABASE_URL`. |
+| `POSTGRES_DB` | Yes | `stockel_db` | Database name to create on first start. Must match `DATABASE_URL`. |
+
+### Email (Nodemailer)
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `SMTP_HOST` | No | `smtp.gmail.com` | SMTP server hostname for sending transactional emails. |
+| `SMTP_PORT` | No | `587` | SMTP port. Typically `587` (STARTTLS) or `465` (SSL). |
+| `SMTP_SECURE` | No | `false` | Set to `true` to use SSL on the SMTP port. |
+| `SMTP_USER` | No | `noreply@example.com` | SMTP authentication username. |
+| `SMTP_PASS` | No | `app-password` | SMTP authentication password or app-specific password. |
+| `EMAIL_FROM` | No | `Stockël <noreply@example.com>` | The `From` address used in outgoing emails. |
+
+### Google reCAPTCHA
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_RECAPTCHA_SITE_KEY` | No | `6LeXkS0sAA...` | reCAPTCHA v2 site key, injected at build time (note the `NEXT_PUBLIC_` prefix). Also passed as a Docker build argument. |
+| `RECAPTCHA_SECRET_KEY` | No | `6LeXkS0sAA...` | reCAPTCHA v2 secret key used server-side to verify challenge tokens. |
+
+### AI assistant (Kassia)
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `OPENAI_API_KEY` | No | `sk-...` | OpenAI API key. Required for the Kassia assistant to function. |
+| `OPENAI_MODEL` | No | `gpt-4o` | The OpenAI model used by the LangChain agent. Defaults to the model specified in the AI configuration. |
+
+## Available npm scripts
+
+Run these directly if you have Node.js installed locally, or prefix with `docker compose exec app` to run inside the container.
+
+| Script | Command | Description |
+|---|---|---|
+| `dev` | `npm run dev` | Starts the Next.js development server with hot reload on port 3000. |
+| `build` | `npm run build` | Produces an optimized production build in `.next/`. |
+| `start` | `npm start` | Starts the production server. Requires a prior `build`. |
+| `lint` | `npm run lint` | Runs ESLint across the project. |
+| `test:ventas` | `npm run test:ventas` | Runs the sales analysis integration test (`tests/test-analisis-ventas.ts`). |
+| `test:cleanup` | `npm run test:cleanup` | Removes test data created by `test:ventas` (`tests/cleanup-test-data.ts`). |
+| `productos:obtener` | `npm run productos:obtener` | Fetches and imports historical product data (`scripts/obtener-productos-historicos.ts`). |
+| `productos:limpiar` | `npm run productos:limpiar` | Cleans up duplicate or stale product records (`scripts/limpiar-productos.ts`). |
+
+## Docker commands reference
+
+<CodeGroup>
+```bash Start
+docker compose up -d
+```
+
+```bash Stop
+docker compose down
+```
+
+```bash Rebuild after code changes
+docker compose up -d --build
+```
+
+```bash View app logs (follow)
+docker compose logs app -f
+```
+
+```bash Open a shell in the app container
+docker compose exec app sh
+```
+
+```bash Run Prisma migrations (dev)
+docker compose exec app npx prisma migrate dev
+```
+
+```bash Run Prisma migrations (production)
+docker compose exec -T app npx prisma migrate deploy
+```
+
+```bash Open Prisma Studio
+docker compose exec app npx prisma studio
+```
+</CodeGroup>
+
+<Note>
+  The `nginx` and `certbot` services are gated behind the `prod` Docker Compose profile. They do not start with a plain `docker compose up`. To include them, use `docker compose --profile prod up -d`.
+</Note>
+
+## Troubleshooting
+
+### The app container exits immediately
+
+Check the logs:
+
+```bash
+docker compose logs app --tail=100
+```
+
+Common causes:
+- **Missing or wrong `DATABASE_URL`** — the app crashes when it cannot reach PostgreSQL. Make sure `DATABASE_URL` uses `db` as the hostname (the Docker Compose service name), not `localhost`.
+- **`prisma generate` not run** — the Docker build runs `npx prisma generate` automatically, but if you modified the schema without rebuilding, regenerate with `docker compose exec app npx prisma generate`.
+
+### `docker-compose: command not found`
+
+Docker Desktop v2+ ships with the Compose plugin. Use `docker compose` (with a space) instead of `docker-compose` (with a hyphen).
+
+### Port 3000 is already in use
+
+Something else on your machine is bound to port 3000. Either stop that process or change the host port mapping in `docker-compose.yml`:
+
+```yaml
+ports:
+  - "3001:3000"   # host:container
+```
+
+Then access the application at `http://localhost:3001`.
+
+### Prisma binary error: `libssl.so.1.1 not found`
+
+The Dockerfile already includes the fix:
+
+```dockerfile
+RUN apk add --no-cache openssl libc6-compat
+```
+
+And `schema.prisma` targets the correct binary:
+
+```prisma
+generator client {
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+```
+
+If you see this error, rebuild the image: `docker compose up -d --build`.
+
+### Schema drift after pulling new changes
+
+If a colleague added a migration that your local database does not yet have, run:
+
+```bash
+docker compose exec app npx prisma migrate dev
+```
+
+This applies the missing migration without wiping existing data.

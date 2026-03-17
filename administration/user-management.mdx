@@ -1,0 +1,156 @@
+---
+title: "User management"
+description: "How users register, authenticate, reset passwords, and are managed by administrators in Stockël."
+---
+
+Stockel manages users through a built-in authentication system backed by PostgreSQL. Each user account is tied to a store location (`tienda`) and carries an explicit list of pages they are allowed to access. This page covers the full lifecycle of a user account — from registration through session management.
+
+## User model
+
+The `User` table holds all account data. Key fields are:
+
+| Field | Type | Description |
+|---|---|---|
+| `id` | `String` (UUID) | Primary key, auto-generated UUID |
+| `email` | `String` | Unique email address used to log in |
+| `password` | `String` | Bcrypt-hashed password |
+| `name` | `String?` | Display name (optional) |
+| `tienda` | `String` | Store assignment, e.g. `CEDIS`, `QRO`, `LVI`. Defaults to `CEDIS` |
+| `rol` | `String` | `usuario` or `admin`. Kept for compatibility — access is primarily controlled by `paginasPermitidas` |
+| `paginasPermitidas` | `String[]` | Array of page slugs the user may visit |
+| `sessionVersion` | `Int` | Incremented on permission changes to invalidate all active sessions |
+| `emailVerified` | `DateTime?` | Set when the user clicks the verification link |
+| `verificationToken` | `String?` | Unique token sent in the verification email |
+| `verificationTokenExpiry` | `DateTime?` | Expiry timestamp for the verification token |
+| `resetToken` | `String?` | Unique token for password reset |
+| `resetTokenExpiry` | `DateTime?` | Expiry timestamp for the reset token |
+| `createdAt` | `DateTime` | Account creation timestamp |
+| `updatedAt` | `DateTime` | Last update timestamp |
+
+<Note>
+The `rol` field is retained for backward compatibility. In practice, access is enforced by comparing `paginasPermitidas` against the page the user is requesting. The only functional distinction `rol` carries is that users with `rol = 'admin'` bypass all page-level checks.
+</Note>
+
+## Registration flow
+
+New users create an account at `/register`. The registration form collects:
+
+- **Name**
+- **Email**
+- **Store** — selected from the full list of store codes (e.g. `CEDIS`, `QRO`, `LVI`, `PUE`)
+- **Password** — must be at least 6 characters
+- **Google reCAPTCHA v2** — required to submit the form
+
+<Steps>
+  <Step title="Submit the registration form">
+    The browser posts `name`, `email`, `password`, `tienda`, and the reCAPTCHA token to `POST /api/auth/register`. The API validates the reCAPTCHA, hashes the password, and creates the `User` record with `emailVerified = null` and `paginasPermitidas = []`.
+  </Step>
+  <Step title="Verify your email address">
+    The system generates a unique `verificationToken` and emails a link to the address provided. Click the link to reach `/verify-email?token=<token>`. The API at `GET /api/auth/verify-email` validates the token, sets `emailVerified` to the current timestamp, and clears `verificationToken`.
+  </Step>
+  <Step title="Wait for an admin to grant access">
+    New accounts start with an empty `paginasPermitidas` array. Logging in without any granted pages redirects you to `/saludos`, a holding page that indicates your account is pending access. An administrator must assign page permissions before you can use the application.
+  </Step>
+  <Step title="Receive your access notification">
+    When an administrator grants you at least one page for the first time, the system automatically sends you a notification email and increments your `sessionVersion`, invalidating any existing sessions. Log in again to start your session with the new permissions.
+  </Step>
+</Steps>
+
+<Warning>
+Email verification must be completed before an administrator can grant access. Accounts with `emailVerified = null` appear as **Pendiente** in the user management table.
+</Warning>
+
+## Login
+
+Users log in at `/login` using their email, password, and a Google reCAPTCHA v2 challenge. On success, `POST /api/auth/login` issues a signed JWT that includes `userId`, `email`, and the current `sessionVersion`. The token is delivered as an HTTP-only cookie.
+
+After login, the application redirects based on the user's permissions:
+
+- `rol = 'admin'` → `/dashboard`
+- At least one page in `paginasPermitidas` → `/dashboard`
+- No pages granted → `/saludos`
+
+You can check **Recordarme** on the login form to extend the session lifetime.
+
+## Password reset
+
+<Steps>
+  <Step title="Request a reset link">
+    Navigate to `/forgot-password` and enter your email address. The system calls `POST /api/auth/forgot-password`, which generates a unique `resetToken`, writes `resetTokenExpiry`, and emails a reset link regardless of whether the address exists (to prevent user enumeration).
+  </Step>
+  <Step title="Set a new password">
+    Click the link in the email to reach `/reset-password?token=<token>`. Enter and confirm your new password. The API at `POST /api/auth/reset-password` validates that the token matches and has not expired, then hashes and saves the new password and clears `resetToken` and `resetTokenExpiry`.
+  </Step>
+  <Step title="Log in with the new password">
+    Return to `/login` and authenticate with your new credentials.
+  </Step>
+</Steps>
+
+## Session invalidation with `sessionVersion`
+
+The `sessionVersion` field is an integer that starts at `1` for every new account. The JWT issued at login encodes the `sessionVersion` value at the time of login.
+
+Every time an administrator changes a user's permissions, the system increments `sessionVersion` by 1:
+
+```typescript
+await prisma.user.update({
+  where: { id: userId },
+  data: {
+    paginasPermitidas: paginasAAsignar,
+    sessionVersion: { increment: 1 }
+  }
+})
+```
+
+On each authenticated request, the API reads `sessionVersion` from the JWT and compares it to the value stored in the database. If the token version is lower than the database version, the request is rejected and the user must log in again. This ensures that permission changes take effect immediately across all open sessions and devices.
+
+## Admin operations
+
+All user administration is done at **Configuración → Gestión de Usuarios** (`/configuracion/usuarios`). This page is only accessible to users with `rol = 'admin'`.
+
+<CardGroup cols={2}>
+  <Card title="View all users" icon="users">
+    The page lists every registered user with their name, email, store, role, email verification status, and page count. Use the search bar to filter by name or email in real time.
+  </Card>
+  <Card title="Manage permissions" icon="lock">
+    Click **Gestionar Permisos** on any user row to open the permissions modal. Select individual pages or apply a predefined permission set, then click **Guardar Permisos**.
+  </Card>
+  <Card title="Promote to admin" icon="shield">
+    Granting a user access to the `configuracion-usuarios` page automatically sets their `rol` to `admin`, giving them unrestricted access to all pages and features.
+  </Card>
+  <Card title="Revoke access" icon="ban">
+    Apply the **Sin Acceso** preset to clear all page permissions. The user's `sessionVersion` is incremented immediately, forcing logout from any active sessions.
+  </Card>
+</CardGroup>
+
+<Info>
+The user management API (`PATCH /api/usuarios`) verifies the caller's `rol = 'admin'` before processing any change. Non-admin users receive a `403 Forbidden` response.
+</Info>
+
+## Available store codes
+
+The `tienda` field uses short codes that correspond to physical locations and departments:
+
+| Code | Location |
+|---|---|
+| `CEDIS` | Cedis (default) |
+| `LVI` | La Viga |
+| `PUE` | Puebla |
+| `INT` | InterLomas |
+| `MIR` | Miramontes |
+| `ZAR` | Zaragoza |
+| `TOR` | Toreo |
+| `MET` | Metepec |
+| `SFE` | Santa Fe |
+| `GB` | Gustavo Baz |
+| `KOU` | Perinorte |
+| `QRO` | Querétaro |
+| `POL` | Polanco |
+| `DS` | Desarrollo de Software |
+| `ATC K` | Atención al cliente K |
+| `LOG` | Logística |
+| `ALM K` | Almacén K |
+| `ALM A` | Almacén A |
+| `ALM Q` | Almacén Q |
+| `Compras` | Compras |
+| `STU` | Estudio |

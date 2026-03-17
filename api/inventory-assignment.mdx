@@ -1,0 +1,230 @@
+---
+title: "Inventory Assignment"
+description: "Manually reserve stock from a specific store against an open sale order, and manage the assignment trash bin."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## POST /api/ventas/asignacion-manual/asignar
+
+Creates a manual inventory assignment, reserving `cantidadAsignada` units of a product from a specific store for a given sale folio. Also records a `RESERVA_VENTA` stock movement.
+
+<Note>
+The assignment does **not** reduce the physical stock count — it creates a reservation tracked separately from the `ProductoEnTienda` movement log.
+</Note>
+
+**Request body**
+
+<ParamField body="folio" type="string" required>
+  Sale order folio to assign inventory to (e.g. `"QRO12155"`).
+</ParamField>
+
+<ParamField body="productoId" type="integer" required>
+  ID of the product to assign.
+</ParamField>
+
+<ParamField body="tiendaOrigenId" type="integer" required>
+  ID of the store from which inventory is reserved.
+</ParamField>
+
+<ParamField body="cantidadAsignada" type="integer" required>
+  Number of units to reserve. Must not exceed available (unreserved) stock at the given store.
+</ParamField>
+
+<ParamField body="fechaEntregaProgramada" type="string" required>
+  ISO 8601 date for the planned delivery. Must not be in the past.
+</ParamField>
+
+<ParamField body="observaciones" type="string">
+  Optional notes about the assignment.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "folio": "QRO12155",
+  "productoId": 42,
+  "tiendaOrigenId": 1,
+  "cantidadAsignada": 2,
+  "fechaEntregaProgramada": "2024-04-15",
+  "observaciones": "Cliente confirmó disponibilidad"
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Asignación creada exitosamente",
+  "asignacion": {
+    "id": 55,
+    "folio": "QRO12155",
+    "cantidadAsignada": 2,
+    "fechaAsignacion": "2024-03-17T12:00:00.000Z",
+    "fechaEntregaProgramada": "2024-04-15T00:00:00.000Z",
+    "status": "ACTIVA",
+    "observaciones": "Cliente confirmó disponibilidad",
+    "productoId": 42,
+    "tiendaOrigenId": 1,
+    "asignadoPorId": "uuid-v4",
+    "producto": { "id": 42, "clave": "SL-001", "descripcion": "Sillón individual" },
+    "tiendaOrigen": { "id": 1, "nombre": "CEDIS CD" },
+    "asignadoPor": { "id": "uuid-v4", "name": "Ana García", "email": "ana@empresa.com" }
+  }
+}
+```
+
+**Validation errors** — `400 Bad Request`
+
+- Stock insuficiente: returns `stockActual`, `stockReservado`, `stockDisponible`, `cantidadSolicitada`
+- Quantity would exceed `vendidos` on the sale: returns `cantidadVendida`, `cantidadYaAsignada`, `cantidadSolicitada`, `excedente`
+- Delivery date in the past
+- Sale is `CANCELADO` or `ENTREGADO`
+
+## AsignacionInventario model
+
+<ResponseField name="id" type="integer">
+  Auto-incremented assignment ID.
+</ResponseField>
+
+<ResponseField name="folio" type="string">
+  Sale order folio.
+</ResponseField>
+
+<ResponseField name="cantidadAsignada" type="integer">
+  Units reserved from the origin store.
+</ResponseField>
+
+<ResponseField name="fechaAsignacion" type="string">
+  ISO 8601 timestamp when the assignment was created.
+</ResponseField>
+
+<ResponseField name="fechaEntregaProgramada" type="string">
+  Planned delivery date.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Assignment lifecycle status: `"ACTIVA"`, `"CANCELADA"`, or `"ENTREGADA"`.
+</ResponseField>
+
+<ResponseField name="observaciones" type="string | null">
+  Optional notes.
+</ResponseField>
+
+<ResponseField name="productoId" type="integer">
+  Foreign key to `Producto`.
+</ResponseField>
+
+<ResponseField name="tiendaOrigenId" type="integer">
+  Foreign key to `Tienda` (source store).
+</ResponseField>
+
+<ResponseField name="asignadoPorId" type="string">
+  UUID of the user who created the assignment.
+</ResponseField>
+
+---
+
+## GET /api/ventas/asignacion-manual/papelera
+
+Returns sales that have been moved to the trash bin (hidden from the main assignment view). Returns the 50 most recent entries.
+
+**Query parameters**
+
+<ParamField query="busqueda" type="string">
+  Filter by folio, product `clave`, or product description.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "total": 3,
+  "mostrando": 3,
+  "ventas": [
+    {
+      "id": 10,
+      "ventaId": 201,
+      "fechaMovido": "2024-03-15T09:30:00.000Z",
+      "motivo": "Duplicado CGK",
+      "venta": {
+        "folio": "QRO12100",
+        "clave": "CGK",
+        "producto": { "clave": "SL-001", "descripcion": "Sillón individual" },
+        "vendedor": { "name": "Admin" }
+      },
+      "movidoPor": { "name": "Ana García", "email": "ana@empresa.com" }
+    }
+  ]
+}
+```
+
+---
+
+## POST /api/ventas/asignacion-manual/papelera
+
+Moves one or more sale records to the trash bin.
+
+**Request body**
+
+<ParamField body="ventaIds" type="integer[]" required>
+  Array of `Venta.id` values to move to the trash.
+</ParamField>
+
+<ParamField body="motivo" type="string">
+  Optional reason for moving to trash (stored in `VentaEnPapelera.motivo`).
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "ventaIds": [201, 202],
+  "motivo": "Ventas CGK duplicadas"
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "2 venta(s) movida(s) a papelera",
+  "movedCount": 2
+}
+```
+
+---
+
+## DELETE /api/ventas/asignacion-manual/papelera
+
+Permanently removes **all** records from the trash bin.
+
+<Warning>
+This operation is irreversible. All sales currently in the trash will be removed from the trash table; the underlying `Venta` records are preserved.
+</Warning>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "message": "Se eliminaron 3 registro(s) de la papelera",
+  "deletedCount": 3
+}
+```
+
+## VentaEnPapelera model
+
+<ResponseField name="id" type="integer">Auto-incremented ID.</ResponseField>
+<ResponseField name="ventaId" type="integer">Foreign key to `Venta`.</ResponseField>
+<ResponseField name="fechaMovido" type="string">ISO 8601 timestamp when the sale was moved to trash.</ResponseField>
+<ResponseField name="movidoPorId" type="string">UUID of the user who moved the record.</ResponseField>
+<ResponseField name="motivo" type="string | null">Optional reason.</ResponseField>

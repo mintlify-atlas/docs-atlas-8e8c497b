@@ -1,0 +1,132 @@
+---
+title: "Users"
+description: "List users and manage page-level permissions. Admin access required for all endpoints."
+---
+
+<Note>
+Both endpoints require a valid session cookie **and** `rol = "admin"`. Non-admin users receive `403 Forbidden`. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## GET /api/usuarios
+
+Returns all registered users. Passwords are excluded from the response.
+
+**Example response** — `200 OK`
+
+```json
+{
+  "usuarios": [
+    {
+      "id": "uuid-v4",
+      "email": "ana@empresa.com",
+      "name": "Ana García",
+      "rol": "usuario",
+      "tienda": "CEDIS",
+      "paginasPermitidas": ["inventario", "ventas"],
+      "emailVerified": "2024-01-15T10:00:00.000Z",
+      "createdAt": "2024-01-10T08:00:00.000Z",
+      "updatedAt": "2024-03-17T09:00:00.000Z"
+    }
+  ]
+}
+```
+
+**Response fields**
+
+<ResponseField name="usuarios" type="array">
+  Array of user records.
+
+  <Expandable title="user fields">
+    <ResponseField name="id" type="string">UUID of the user.</ResponseField>
+    <ResponseField name="email" type="string">Email address (unique).</ResponseField>
+    <ResponseField name="name" type="string | null">Display name.</ResponseField>
+    <ResponseField name="rol" type="string">`"admin"` or `"usuario"`. Automatically set to `"admin"` when `configuracion-usuarios` is included in `paginasPermitidas`.</ResponseField>
+    <ResponseField name="tienda" type="string">Store/branch assigned to the user. Defaults to `"CEDIS"`.</ResponseField>
+    <ResponseField name="paginasPermitidas" type="string[]">
+      Array of page slugs the user is allowed to access. Controls which sections of the app are visible to the user.
+    </ResponseField>
+    <ResponseField name="emailVerified" type="string | null">ISO 8601 timestamp when email was verified, or `null`.</ResponseField>
+    <ResponseField name="createdAt" type="string">Account creation timestamp.</ResponseField>
+    <ResponseField name="updatedAt" type="string">Last modification timestamp.</ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## PATCH /api/usuarios
+
+Updates the `paginasPermitidas` (and consequently the `rol`) for a target user. Automatically increments `sessionVersion` to invalidate any active sessions for that user, forcing them to log in again with the new permissions.
+
+If the user gains their first page permissions (from 0 to at least 1), a notification email is sent automatically.
+
+**Request body**
+
+<ParamField body="userId" type="string" required>
+  UUID of the user whose permissions will be updated.
+</ParamField>
+
+<ParamField body="paginasPermitidas" type="string[]">
+  Array of page slugs to grant. Replaces the existing array entirely.
+</ParamField>
+
+<ParamField body="conjuntoPermisos" type="string">
+  Name of a predefined permission set. When provided, `paginasPermitidas` is ignored and the preset is used instead. Available sets are defined in `src/lib/paginas.ts` under `CONJUNTOS_PERMISOS`.
+</ParamField>
+
+<Note>
+Provide either `paginasPermitidas` **or** `conjuntoPermisos`, not both. `conjuntoPermisos` takes precedence.
+</Note>
+
+**Example request — custom page list**
+
+```json
+{
+  "userId": "uuid-v4",
+  "paginasPermitidas": ["inventario", "ventas", "ordenes-compra", "recepciones"]
+}
+```
+
+**Example request — predefined set**
+
+```json
+{
+  "userId": "uuid-v4",
+  "conjuntoPermisos": "almacen"
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "message": "Permisos actualizados exitosamente",
+  "usuario": {
+    "id": "uuid-v4",
+    "email": "ana@empresa.com",
+    "name": "Ana García",
+    "rol": "usuario",
+    "tienda": "CEDIS",
+    "paginasPermitidas": ["inventario", "ventas", "ordenes-compra", "recepciones"],
+    "emailVerified": "2024-01-15T10:00:00.000Z",
+    "createdAt": "2024-01-10T08:00:00.000Z",
+    "updatedAt": "2024-03-17T12:00:00.000Z"
+  }
+}
+```
+
+<Warning>
+Updating permissions immediately invalidates all existing sessions for the target user via `sessionVersion` increment. The user must log in again.
+</Warning>
+
+## Permission system
+
+`paginasPermitidas` is an array of slug strings that correspond to routes in the application. The `rol` field is derived automatically:
+
+| Condition | `rol` value |
+|-----------|-------------|
+| `paginasPermitidas` includes `"configuracion-usuarios"` | `"admin"` |
+| Otherwise | `"usuario"` |
+
+Page slugs are defined in `src/lib/paginas.ts`. Common values include `inventario`, `ventas`, `ordenes-compra`, `recepciones`, `gestion-danos`, `finanzas`, `pasivos`, `proveedores`, and `configuracion-usuarios`.

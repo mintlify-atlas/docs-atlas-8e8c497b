@@ -1,0 +1,223 @@
+---
+title: "Receptions"
+description: "Register incoming merchandise against open purchase orders and query reception history."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## GET /api/recepciones
+
+Returns purchase orders that are pending reception (state `ENVIADA` or `RECIBIDA_PARCIAL`), formatted for the reception form.
+
+**Query parameters**
+
+<ParamField query="limit" type="integer">
+  Maximum orders to return. Defaults to `50`.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+[
+  {
+    "id": "7",
+    "ordenCompraId": "OC-2024-007",
+    "proveedor": "LOMARTI",
+    "fechaEsperada": "2024-04-01",
+    "items": 1,
+    "total": 33250.00,
+    "estado": "ENVIADA",
+    "productos": [
+      {
+        "id": "20",
+        "detalleOrdenCompraId": 20,
+        "nombre": "Sillón individual tapizado",
+        "codKassel": "SL-001",
+        "modKassel": "LUNA",
+        "cantidadOrdenada": 10,
+        "cantidadRecibida": 0,
+        "cantidadDanada": 0,
+        "totalRecibidoAnteriormente": 0,
+        "totalDanadoAnteriormente": 0,
+        "pendientePorRecibir": 10,
+        "observaciones": ""
+      }
+    ]
+  }
+]
+```
+
+---
+
+## POST /api/recepciones
+
+Registers a reception event for a purchase order. Automatically updates inventory (CEDIS FU → CEDIS CD transfer) and advances the order's `estado` to `RECIBIDA_PARCIAL` or `RECIBIDA_COMPLETA`.
+
+<Note>
+Only orders in `ENVIADA` or `RECIBIDA_PARCIAL` state accept reception records.
+</Note>
+
+**Request body**
+
+<ParamField body="ordenCompraId" type="integer" required>
+  Internal ID of the `OrdenCompra` being received.
+</ParamField>
+
+<ParamField body="observaciones" type="string">
+  General notes for this reception event.
+</ParamField>
+
+<ParamField body="productos" type="array" required>
+  Array of product reception details. At least one product must have `cantidadRecibida > 0` or `cantidadDanada > 0`.
+
+  <Expandable title="product reception fields">
+    <ParamField body="detalleOrdenCompraId" type="integer" required>
+      ID of the `DetalleOrdenCompra` record being received.
+    </ParamField>
+    <ParamField body="cantidadRecibida" type="integer" required>
+      Units received in good condition. These are added to CEDIS CD stock.
+    </ParamField>
+    <ParamField body="cantidadDanada" type="integer" required>
+      Units received damaged. These are tracked for damage management but do not enter available stock.
+    </ParamField>
+    <ParamField body="motivoDano" type="string">
+      Required when `cantidadDanada > 0`. One of: `DANO_EN_TRASLADO`, `DANO_EN_DESCARGA`, `DANO_EN_MANIOBRA`, `DANO_EN_ALMACEN`.
+    </ParamField>
+    <ParamField body="observaciones" type="string">
+      Product-specific notes.
+    </ParamField>
+    <ParamField body="productoId" type="integer">
+      Catalog product ID. Overrides the `productoId` from the order line if provided.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "ordenCompraId": 7,
+  "observaciones": "Envío llega en dos camiones",
+  "productos": [
+    {
+      "detalleOrdenCompraId": 20,
+      "cantidadRecibida": 8,
+      "cantidadDanada": 1,
+      "motivoDano": "DANO_EN_TRASLADO",
+      "observaciones": "1 unidad con golpe en madera",
+      "productoId": 42
+    }
+  ]
+}
+```
+
+**Example response** — `201 Created`
+
+```json
+{
+  "mensaje": "Recepción registrada exitosamente",
+  "recepcion": {
+    "id": 12,
+    "fechaRecepcion": "2024-03-17T13:00:00.000Z",
+    "observaciones": "Envío llega en dos camiones",
+    "excedentesGestionados": false,
+    "ordenCompraId": 7,
+    "recibidoPorId": "uuid-v4",
+    "detalles": [ ... ]
+  }
+}
+```
+
+## Inventory movement on reception
+
+For each product line received:
+
+1. **CEDIS FU** stock is reduced by the received quantity (up to the ordered amount).
+2. **CEDIS CD** stock is increased by `cantidadRecibida` (damaged units are excluded).
+3. Active inventory assignments previously pointing to CEDIS FU are transferred to CEDIS CD.
+
+---
+
+## GET /api/recepciones/historial
+
+Returns completed reception records with filters for date range, damage, shortfalls, and excess.
+
+**Query parameters**
+
+<ParamField query="periodo" type="string">
+  Date range: `"semana"` (last 7 days) or `"mes"` (last 30 days). Defaults to `"semana"`. Ignored when `conFaltantes` or `conExcedentes` is set.
+</ParamField>
+
+<ParamField query="conDanos" type="boolean">
+  If `true`, returns only receptions with at least one damaged unit.
+</ParamField>
+
+<ParamField query="conFaltantes" type="boolean">
+  If `true`, returns receptions with outstanding unfulfilled quantities. Excludes orders where shortfalls were explicitly cancelled (`incumplimientoProveedor = true`).
+</ParamField>
+
+<ParamField query="conExcedentes" type="boolean">
+  If `true`, returns receptions with quantities received above what was ordered. Excludes receptions where excesses have already been managed (`excedentesGestionados = true`).
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+[
+  {
+    "id": 12,
+    "folio": "OC-2024-007",
+    "fechaRecepcion": "2024-03-17T13:00:00.000Z",
+    "proveedorId": 3,
+    "proveedor": "LOMARTI",
+    "rfc": "LOM010101AAA",
+    "recibidoPor": "Ana García",
+    "totalProductos": 1,
+    "totalRecibido": 8,
+    "totalDanado": 1,
+    "totalMonto": 28000.00,
+    "tieneDanos": true,
+    "tieneFaltantes": true,
+    "tieneExcedentes": false,
+    "productosFaltantes": [
+      { "nombre": "Sillón individual tapizado", "codKassel": "SL-001", "ordenado": 10, "recibido": 9, "faltante": 1 }
+    ],
+    "productosExcedentes": [],
+    "productos": [ ... ],
+    "observaciones": "Envío llega en dos camiones"
+  }
+]
+```
+
+## MotivoDano enum values
+
+| Value | Description |
+|-------|-------------|
+| `DANO_EN_TRASLADO` | Damage occurred during transport from supplier |
+| `DANO_EN_DESCARGA` | Damage during unloading at the warehouse |
+| `DANO_EN_MANIOBRA` | Damage during handling or maneuvering |
+| `DANO_EN_ALMACEN` | Damage that occurred while in storage |
+
+## Recepcion model
+
+<ResponseField name="id" type="integer">Auto-incremented reception ID.</ResponseField>
+<ResponseField name="fechaRecepcion" type="string">ISO 8601 timestamp of the reception event.</ResponseField>
+<ResponseField name="observaciones" type="string | null">General notes.</ResponseField>
+<ResponseField name="excedentesGestionados" type="boolean">Whether excess quantities have been resolved.</ResponseField>
+<ResponseField name="ordenCompraId" type="integer">Foreign key to `OrdenCompra`.</ResponseField>
+<ResponseField name="recibidoPorId" type="string">UUID of the user who registered the reception.</ResponseField>
+
+## DetalleRecepcion model
+
+<ResponseField name="id" type="integer">Auto-incremented ID.</ResponseField>
+<ResponseField name="cantidadRecibida" type="integer">Units received in good condition.</ResponseField>
+<ResponseField name="cantidadDanada" type="integer">Units received damaged.</ResponseField>
+<ResponseField name="motivoDano" type="string | null">`MotivoDano` enum value, or `null` if no damage.</ResponseField>
+<ResponseField name="observaciones" type="string | null">Product-level notes.</ResponseField>
+<ResponseField name="recepcionId" type="integer">Foreign key to `Recepcion`.</ResponseField>
+<ResponseField name="detalleOrdenCompraId" type="integer">Foreign key to the `DetalleOrdenCompra` line.</ResponseField>
+<ResponseField name="productoId" type="integer | null">Catalog `Producto` ID if linked.</ResponseField>

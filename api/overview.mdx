@@ -1,0 +1,142 @@
+---
+title: "API Overview"
+description: "Base URL patterns, authentication, response formats, and error handling for the Stockël API."
+---
+
+## Base URL
+
+All API routes are served relative to the application root:
+
+```
+/api/[resource]
+```
+
+For example, to list products:
+
+```
+GET /api/productos
+```
+
+## Authentication
+
+Every endpoint requires a valid session. Authentication is cookie-based using a signed JWT stored in an `HttpOnly` cookie named `token`.
+
+<Steps>
+  <Step title="Obtain a session token">
+    Send a `POST` request to `/api/auth/login` with your credentials and a valid reCAPTCHA token. On success the server sets the `token` cookie automatically.
+  </Step>
+  <Step title="Include the cookie on subsequent requests">
+    Browsers send the cookie automatically. For server-to-server or CLI clients, pass the cookie header manually:
+
+    ```http
+    Cookie: token=<your_jwt>
+    ```
+  </Step>
+  <Step title="End your session">
+    Call `POST /api/auth/logout` to invalidate the token server-side and clear the cookie.
+  </Step>
+</Steps>
+
+<Note>
+The JWT payload includes `userId`, `email`, and `sessionVersion`. Incrementing `sessionVersion` (which happens on logout and on permission changes) immediately invalidates all existing tokens for that user.
+</Note>
+
+## Common response format
+
+Successful responses return JSON. Most collection endpoints wrap results in a named key:
+
+```json
+{
+  "productos": [...],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 312,
+    "totalPages": 7
+  }
+}
+```
+
+Single-resource endpoints return the object directly or wrapped in a named key:
+
+```json
+{ "producto": { "id": 1, "clave": "ABC-001", ... } }
+```
+
+Action endpoints return a confirmation message:
+
+```json
+{ "message": "Operación completada exitosamente" }
+```
+
+## Error responses
+
+All errors return a JSON body with an `error` field and an appropriate HTTP status code:
+
+```json
+{ "error": "Descripción del error" }
+```
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Bad request — validation failed or business rule violated |
+| `401` | Unauthenticated — missing or invalid session token |
+| `403` | Forbidden — insufficient permissions |
+| `404` | Resource not found |
+| `500` | Internal server error |
+
+## Rate limiting
+
+Rate limiting is applied to authentication endpoints only:
+
+| Endpoint | Limit by IP | Limit by email | Progressive delay |
+|----------|-------------|----------------|-------------------|
+| `POST /api/auth/login` | 100 req / 15 min | 5 req / 15 min | 0 → 1 → 2 → 4 → 8–15 s |
+| `POST /api/auth/register` | 10 req / 1 hr | 1 req / 1 hr | 0 → 2 → 5 s |
+| `POST /api/auth/forgot-password` | 30 req / 1 hr | 3 req / 1 hr | 0 → 2 → 5 → 10 s |
+
+When a limit is exceeded the server responds with `429 Too Many Requests`.
+
+## Available API groups
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/api/auth">
+    Login, logout, registration, email verification, and password reset.
+  </Card>
+  <Card title="Products" icon="box" href="/api/products">
+    CRUD operations and catalog management for the product master.
+  </Card>
+  <Card title="Inventory" icon="warehouse" href="/api/inventory">
+    Stock availability and per-store stock queries.
+  </Card>
+  <Card title="Stores" icon="store" href="/api/stores">
+    Store (Tienda) data included via the inventory endpoints.
+  </Card>
+  <Card title="Sales" icon="receipt" href="/api/sales">
+    Sales records and bulk upload from external systems.
+  </Card>
+  <Card title="Inventory Assignment" icon="arrow-right-arrow-left" href="/api/inventory-assignment">
+    Manual reservation of stock against open sales orders.
+  </Card>
+  <Card title="Purchase Orders" icon="file-invoice" href="/api/purchase-orders">
+    Create, update, and track purchase orders through their lifecycle.
+  </Card>
+  <Card title="Receptions" icon="truck" href="/api/receptions">
+    Register incoming merchandise against purchase orders.
+  </Card>
+  <Card title="Damage Management" icon="triangle-exclamation" href="/api/damage-management">
+    Record decisions and charge-backs for damaged goods.
+  </Card>
+  <Card title="Finance Reports" icon="chart-line" href="/api/finance-reports">
+    Sales analysis, margins, and supplier delivery-time reports.
+  </Card>
+  <Card title="Payables" icon="money-bill" href="/api/payables">
+    Track and register payments against received purchase orders.
+  </Card>
+  <Card title="Suppliers" icon="truck-moving" href="/api/suppliers">
+    Supplier CRUD and soft-delete.
+  </Card>
+  <Card title="Users" icon="users" href="/api/users">
+    User listing and permission management (admin only).
+  </Card>
+</CardGroup>

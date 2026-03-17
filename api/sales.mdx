@@ -1,0 +1,198 @@
+---
+title: "Sales"
+description: "Upload and query Venta (sale) records synced from the external sales management system."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## POST /api/ventas/subir-ventas
+
+Bulk-upserts sale records from the external SM (sales management) system into the `Venta` table. Handles deduplication, status updates (CANCELADO, ENTREGADO), and triggers inventory assignment processing.
+
+<Note>
+If a product referenced by `Clave` does not exist in the catalog, it is created automatically with `status = "activo"` and an empty description.
+</Note>
+
+**Request body**
+
+<ParamField body="datos" type="array" required>
+  Array of sale records to upsert. Each record represents one line from the SM export.
+
+  <Expandable title="sale record fields">
+    <ParamField body="Clave" type="string" required>
+      Product code (matches `Producto.clave`).
+    </ParamField>
+    <ParamField body="Grupo" type="string">
+      Product group. Defaults to `"SIN GRUPO"` if absent.
+    </ParamField>
+    <ParamField body="Productos" type="string" required>
+      Product description string from SM.
+    </ParamField>
+    <ParamField body="Folio" type="string" required>
+      Sale order folio (e.g. `"QRO12155"`).
+    </ParamField>
+    <ParamField body="Fecha" type="string" required>
+      ISO 8601 date of the sale.
+    </ParamField>
+    <ParamField body="Fecha_Entrega" type="string">
+      Expected delivery date (ISO 8601).
+    </ParamField>
+    <ParamField body="Vendidos" type="integer" required>
+      Quantity sold.
+    </ParamField>
+    <ParamField body="MontoVenta" type="number">
+      Sale amount in MXN.
+    </ParamField>
+    <ParamField body="Sucursal" type="string">
+      Branch where the sale was made.
+    </ParamField>
+    <ParamField body="Columna_Vacia_1" type="string">
+      Mapped to `apartado` — internal reservation flag from SM.
+    </ParamField>
+    <ParamField body="Descripcion" type="string">
+      Sale description.
+    </ParamField>
+    <ParamField body="Estatus_Liquidacion" type="string">
+      Liquidation status string from SM. Stored in `observaciones`.
+    </ParamField>
+    <ParamField body="EstatusSM" type="string">
+      Status from SM system. `"Cancelado"` sets status to `CANCELADO`; `"Entregado"` sets it to `ENTREGADO`.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "datos": [
+    {
+      "Clave": "SL-001",
+      "Grupo": "SALA",
+      "Productos": "SL-001 - Sillón LUNA",
+      "Folio": "QRO12155",
+      "Fecha": "2024-03-10T00:00:00.000Z",
+      "Fecha_Entrega": "2024-04-01T00:00:00.000Z",
+      "Vendidos": 2,
+      "MontoVenta": 7000.00,
+      "Sucursal": "QRO",
+      "Columna_Vacia_1": "",
+      "Descripcion": "Entrega a domicilio",
+      "Estatus_Liquidacion": "",
+      "EstatusSM": null
+    }
+  ]
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "resumen": {
+    "total": 1,
+    "insertados": 1,
+    "duplicados": 0,
+    "modificados": 0,
+    "entregados": 0,
+    "cancelados": 0,
+    "errores": 0
+  }
+}
+```
+
+**Response fields**
+
+<ResponseField name="success" type="boolean">
+  `true` when the batch completed (even if some records had errors).
+</ResponseField>
+
+<ResponseField name="resumen" type="object">
+  Summary of the batch operation.
+
+  <Expandable title="resumen fields">
+    <ResponseField name="total" type="integer">Total records submitted.</ResponseField>
+    <ResponseField name="insertados" type="integer">New records created.</ResponseField>
+    <ResponseField name="duplicados" type="integer">Records that already existed with no changes.</ResponseField>
+    <ResponseField name="modificados" type="integer">Records that existed and were updated.</ResponseField>
+    <ResponseField name="entregados" type="integer">Records whose status changed to `ENTREGADO`.</ResponseField>
+    <ResponseField name="cancelados" type="integer">Records whose status changed to `CANCELADO`.</ResponseField>
+    <ResponseField name="errores" type="integer">Records that failed to process.</ResponseField>
+    <ResponseField name="erroresDetalle" type="array">
+      Up to 20 error details, each with `folio`, `clave`, `grupo`, and `error` message.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Venta model
+
+The `Venta` table stores one row per product line per sale folio.
+
+<ResponseField name="id" type="integer">
+  Auto-incremented ID.
+</ResponseField>
+
+<ResponseField name="clave" type="string">
+  Product code.
+</ResponseField>
+
+<ResponseField name="grupo" type="string">
+  Product group.
+</ResponseField>
+
+<ResponseField name="productos" type="string">
+  Product description string from SM.
+</ResponseField>
+
+<ResponseField name="tipoMovimiento" type="string">
+  Always `"VENTA"` for records created via `subir-ventas`.
+</ResponseField>
+
+<ResponseField name="folio" type="string">
+  Sale order folio.
+</ResponseField>
+
+<ResponseField name="fecha" type="string">
+  ISO 8601 sale date.
+</ResponseField>
+
+<ResponseField name="fechaEntrega" type="string | null">
+  Expected delivery date.
+</ResponseField>
+
+<ResponseField name="apartado" type="string">
+  Reservation flag from SM (`Columna_Vacia_1`).
+</ResponseField>
+
+<ResponseField name="vendidos" type="integer">
+  Quantity sold.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current status: `"ACTIVO"`, `"CANCELADO"`, `"ENTREGADO"`, or `"MODIFICADO"`.
+</ResponseField>
+
+<ResponseField name="descripcion" type="string | null">
+  Sale description.
+</ResponseField>
+
+<ResponseField name="observaciones" type="string | null">
+  Liquidation status from SM (`Estatus_Liquidacion`).
+</ResponseField>
+
+<ResponseField name="sucursal" type="string | null">
+  Branch where the sale originated.
+</ResponseField>
+
+<ResponseField name="montoVenta" type="string | null">
+  Sale amount in MXN (Decimal as string).
+</ResponseField>
+
+<ResponseField name="claveAlias" type="string | null">
+  When the sale uses a generic CGK code, this field stores the actual product's `clave`.
+</ResponseField>

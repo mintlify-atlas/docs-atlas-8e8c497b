@@ -1,0 +1,203 @@
+---
+title: "Suppliers"
+description: "CRUD operations for Proveedor (supplier) records. Deletion is a soft delete that sets activo to false."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## GET /api/proveedores
+
+Returns all active suppliers (`activo = true`), ordered by name.
+
+**Example response** — `200 OK`
+
+```json
+[
+  {
+    "id": 3,
+    "nombre": "LOMARTI",
+    "rfc": "LOM010101AAA",
+    "razonSocial": "Lomarti S.A. de C.V.",
+    "direccion": "Blvd. Independencia 450, Zapopan, Jalisco",
+    "telefono": "33-1234-5678",
+    "email": "ventas@lomarti.com",
+    "contacto": "Ricardo Martínez",
+    "activo": true,
+    "createdAt": "2024-01-05T08:00:00.000Z",
+    "updatedAt": "2024-03-10T15:00:00.000Z"
+  }
+]
+```
+
+**Response fields**
+
+<ResponseField name="id" type="integer">Auto-incremented supplier ID.</ResponseField>
+<ResponseField name="nombre" type="string">Commercial name of the supplier.</ResponseField>
+<ResponseField name="rfc" type="string | null">Mexican tax ID (RFC). Unique across all supplier records.</ResponseField>
+<ResponseField name="razonSocial" type="string | null">Legal registered name.</ResponseField>
+<ResponseField name="direccion" type="string | null">Physical or fiscal address.</ResponseField>
+<ResponseField name="telefono" type="string | null">Contact phone number.</ResponseField>
+<ResponseField name="email" type="string | null">Contact email address.</ResponseField>
+<ResponseField name="contacto" type="string | null">Name of the primary contact person.</ResponseField>
+<ResponseField name="activo" type="boolean">Whether the supplier is active. Inactive suppliers are excluded from `GET` results.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="updatedAt" type="string">ISO 8601 last-updated timestamp.</ResponseField>
+
+---
+
+## POST /api/proveedores
+
+Creates a new supplier.
+
+**Request body**
+
+<ParamField body="nombre" type="string" required>
+  Commercial name. Does not need to be unique (RFC is the unique identifier).
+</ParamField>
+
+<ParamField body="rfc" type="string">
+  RFC. Must be unique if provided.
+</ParamField>
+
+<ParamField body="razonSocial" type="string">
+  Legal registered name.
+</ParamField>
+
+<ParamField body="direccion" type="string">
+  Address.
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Phone number.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Email address.
+</ParamField>
+
+<ParamField body="contacto" type="string">
+  Contact person's name.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "nombre": "VALORE",
+  "rfc": "VAL010101BBB",
+  "razonSocial": "Valore Muebles S.A. de C.V.",
+  "direccion": "Av. Insurgentes 1000, CDMX",
+  "telefono": "55-9876-5432",
+  "email": "contacto@valore.mx",
+  "contacto": "Laura Sánchez"
+}
+```
+
+**Example response** — `201 Created`
+
+```json
+{
+  "id": 12,
+  "nombre": "VALORE",
+  "rfc": "VAL010101BBB",
+  "razonSocial": "Valore Muebles S.A. de C.V.",
+  "direccion": "Av. Insurgentes 1000, CDMX",
+  "telefono": "55-9876-5432",
+  "email": "contacto@valore.mx",
+  "contacto": "Laura Sánchez",
+  "activo": true,
+  "createdAt": "2024-03-17T12:00:00.000Z",
+  "updatedAt": "2024-03-17T12:00:00.000Z"
+}
+```
+
+---
+
+## PATCH /api/proveedores
+
+Partially updates a supplier. Only fields included in the request body are modified.
+
+**Request body**
+
+<ParamField body="id" type="integer" required>
+  Supplier ID to update.
+</ParamField>
+
+<ParamField body="nombre" type="string">
+  Updated commercial name.
+</ParamField>
+
+<ParamField body="rfc" type="string">
+  Updated RFC.
+</ParamField>
+
+<ParamField body="razonSocial" type="string">
+  Updated legal name.
+</ParamField>
+
+<ParamField body="direccion" type="string">
+  Updated address.
+</ParamField>
+
+<ParamField body="telefono" type="string">
+  Updated phone.
+</ParamField>
+
+<ParamField body="email" type="string">
+  Updated email.
+</ParamField>
+
+<ParamField body="contacto" type="string">
+  Updated contact person.
+</ParamField>
+
+<ParamField body="activo" type="boolean">
+  Set to `false` to deactivate without deleting.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "id": 12,
+  "nombre": "VALORE",
+  "email": "nuevoemail@valore.mx",
+  "activo": true,
+  ...
+}
+```
+
+---
+
+## DELETE /api/proveedores
+
+Soft-deletes a supplier by setting `activo = false`. The supplier record is preserved and can be reactivated via `PATCH`.
+
+**Query parameters**
+
+<ParamField query="id" type="integer" required>
+  Supplier ID to deactivate.
+</ParamField>
+
+**Example request**
+
+```
+DELETE /api/proveedores?id=12
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "message": "Proveedor desactivado",
+  "proveedor": { "id": 12, "activo": false, ... }
+}
+```
+
+<Note>
+Inactive suppliers are hidden from `GET /api/proveedores` but remain linked to existing purchase orders and products.
+</Note>

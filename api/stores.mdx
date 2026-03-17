@@ -1,0 +1,81 @@
+---
+title: "Stores"
+description: "Tienda (store/branch) records are returned as part of the inventory endpoints. This page documents the Tienda model and how stores appear in API responses."
+---
+
+<Note>
+There are no dedicated CRUD endpoints for stores in the current API. Store data is returned alongside inventory responses. Store management is handled directly in the database or through the admin interface.
+</Note>
+
+## Tienda model
+
+Stores are the physical or logical locations where inventory is tracked.
+
+<ResponseField name="id" type="integer">
+  Auto-incremented store ID.
+</ResponseField>
+
+<ResponseField name="nombre" type="string">
+  Unique store name. Used as the key in `stockPorTienda` maps (e.g. `"CEDIS CD"`, `"QRO"`).
+</ResponseField>
+
+<ResponseField name="ubicacion" type="string | null">
+  Physical location or city of the store.
+</ResponseField>
+
+<ResponseField name="descripcion" type="string | null">
+  Optional description of the store's purpose.
+</ResponseField>
+
+## Special stores
+
+Two stores have dedicated roles in the inventory lifecycle:
+
+| ID | Nombre | Role |
+|----|--------|------|
+| `1` | CEDIS CD | Main distribution center. Stock arrives here when merchandise is received from a purchase order. |
+| `2` | CEDIS FU | In-transit stock. Units are added here when a purchase order is marked `ENVIADA`, and moved to CEDIS CD when the reception is registered. |
+
+## Where stores appear
+
+The full list of stores is returned by:
+
+- `GET /api/inventario/stock-tiendas` — includes a `tiendas` array for rendering table headers
+- `GET /api/inventario/disponibilidad` — includes `sucursalesConStock` per product
+
+## ProductoEnTienda model
+
+Each inventory movement is recorded as a `ProductoEnTienda` entry. The current stock for a product at a given store is determined by the most recent entry for that `(productoId, tiendaId)` pair.
+
+<ResponseField name="id" type="integer">
+  Auto-incremented movement ID.
+</ResponseField>
+
+<ResponseField name="cantidad_stock" type="integer">
+  Absolute stock level after this movement (not a delta).
+</ResponseField>
+
+<ResponseField name="movimiento" type="string">
+  Human-readable movement description. Common prefixes:
+  - `ENTRADA_OC` — stock added when a PO is sent
+  - `ENTRADA_RECEPCION` — stock added on merchandise reception
+  - `SALIDA_RECEPCION` — stock reduced in CEDIS FU on reception
+  - `RESERVA_VENTA` — stock reserved for a sale assignment
+  - `RESERVA_TRANSFERIDA` — reservation moved from CEDIS FU to CEDIS CD
+</ResponseField>
+
+<ResponseField name="fecha" type="string">
+  ISO 8601 timestamp of the movement.
+</ResponseField>
+
+<ResponseField name="productoId" type="integer">
+  Foreign key to `Producto`.
+</ResponseField>
+
+<ResponseField name="tiendaId" type="integer">
+  Foreign key to `Tienda`.
+</ResponseField>
+
+<ResponseField name="usuarioId" type="string">
+  UUID of the user who triggered the movement.
+</ResponseField>

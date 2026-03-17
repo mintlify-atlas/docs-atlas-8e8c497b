@@ -1,0 +1,164 @@
+---
+title: "Sales"
+description: "Record sales, look up order folios, and assign inventory to pending orders manually or automatically."
+---
+
+The **Ventas** module manages the post-sale side of the operation: matching sold products to available physical inventory, tracking delivery commitments, and handling special order types.
+
+## Sales recording
+
+Sales enter the system through imports or integrations with point-of-sale systems. Each sale creates a `Venta` record that describes what was sold, to whom, and under which folio (order number).
+
+### The Venta model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `folio` | `String` | Order number (e.g. `QRO12155`) — the primary way to look up a sale |
+| `clave` | `String` | Product key at the time of sale |
+| `grupo` | `String` | Product group at the time of sale |
+| `productos` | `String` | Product name/description string |
+| `tipoMovimiento` | `String` | Movement type code (e.g. `V`, `CGK`, `CGQ`, `CGA`) |
+| `montoVenta` | `Decimal?` | Sale value in MXN |
+| `vendidos` | `Int` | Quantity sold |
+| `status` | `String` | Current status (`CANCELADO`, `ENTREGADO`, or empty) |
+| `fechaEntrega` | `DateTime?` | Promised delivery date |
+| `observaciones` | `String?` | Status notes (e.g. `SIN LIQUIDAR`, `SIN PROG`) |
+| `claveAlias` | `String?` | Real product key when `clave` is a generic code like `CGK` |
+| `productoId` | `Int` | Foreign key to `Producto` |
+| `vendedorId` | `String` | Foreign key to the `User` who recorded the sale |
+
+### Order status
+
+The `status` and `observaciones` fields together determine what action is needed:
+
+| Condition | Status shown | Can assign inventory? |
+|-----------|-------------|----------------------|
+| `status = 'CANCELADO'` | CANCELADO | No |
+| `status = 'ENTREGADO'` | ENTREGADO | No |
+| `observaciones` contains `SIN LIQUIDAR` | SIN LIQUIDAR | Yes, with confirmation |
+| `observaciones` is empty or `SIN PROG` | SIN PROG | Yes |
+| Otherwise | ASIGNADO | Yes |
+
+## Folio consultation
+
+Navigate to **Ventas → Consulta de Folios** to look up any past or present order by folio number. This section supports search and tracking of individual order folios across the system.
+
+## Manual inventory assignment
+
+Navigate to **Ventas → Asignación Manual** to manage which physical stock is committed to which pending sales.
+
+This is the primary workflow for the operations team. The page has three tabs:
+
+<CardGroup cols={2}>
+  <Card title="Buscar" icon="search">
+    Find pending sales by folio, date range, or product key. See stock availability per tienda with a traffic-light indicator.
+  </Card>
+  <Card title="Asignar" icon="package">
+    Reserve specific units from a specific store for a specific folio, with a promised delivery date.
+  </Card>
+  <Card title="Reportes" icon="bar-chart-3">
+    View assignment statistics: products found, units assigned, and units still pending.
+  </Card>
+  <Card title="Papelera" icon="trash-2">
+    Review and recover CGK, CGQ, and CGA sales that were moved to the trash bin.
+  </Card>
+</CardGroup>
+
+### Assignment workflow
+
+<Steps>
+  <Step title="Search for the sale">
+    Choose a search mode: **Por Folio** (enter the folio number directly), **Por Fecha** (select a date range), or **Por Clave** (enter a product key to see all pending orders for that item).
+
+    Optionally apply filters by **Proveedor** or **Grupo** to narrow the results.
+  </Step>
+  <Step title="Review availability">
+    Each result row shows:
+    - `cantidadAsignada` — units already assigned
+    - `cantidadPendiente` — units still needing assignment
+    - `inventarioDisponible` — stock available by tienda
+
+    A traffic-light color (`verde`, `amarillo`, `rojo`) on each store card indicates delivery feasibility.
+  </Step>
+  <Step title="Select a sale and store">
+    Click **Asignar** on the sale you want to work. The page switches to the Asignar tab and loads `DisponibilidadTienda` data for the product. Select the store you want to fulfill from.
+  </Step>
+  <Step title="Set quantity and delivery date">
+    In the assignment modal, confirm:
+    - **Cantidad** — units to assign (defaults to the smaller of available stock or pending quantity)
+    - **Fecha de entrega** — the promised delivery date
+    - **Observaciones** — any notes for the record
+
+    Click **Confirmar** to create the `AsignacionInventario` record.
+  </Step>
+  <Step title="Cancel or update assignments">
+    Existing assignments appear in the expanded sale view under **Asignaciones activas**. Click the delete icon to cancel an assignment and return the stock reservation to available.
+  </Step>
+</Steps>
+
+### AsignacionInventario model
+
+```prisma
+model AsignacionInventario {
+  id                     Int      @id @default(autoincrement())
+  folio                  String
+  cantidadAsignada       Int
+  fechaAsignacion        DateTime @default(now())
+  fechaEntregaProgramada DateTime
+  status                 String   @default("ACTIVA") // ACTIVA, CANCELADA, ENTREGADA
+  observaciones          String?
+  productoId             Int
+  tiendaOrigenId         Int
+  asignadoPorId          String
+}
+```
+
+### No-stock flow
+
+If `stockDisponible = 0` when you try to assign a sale, the system shows a modal prompting you to create a purchase order. Click **Ir a Órdenes de Compra** to navigate to `/compras/ordenes` with the product data pre-filled in the new order form.
+
+### Notification bell
+
+The assignment page includes a notification bell that polls `/api/notificaciones` every 30 seconds. You receive two notification types:
+
+- **Reservas liberadas** — a previously assigned folio was cancelled, freeing stock
+- **Stock descontado** — an assignment was marked as delivered and stock was deducted
+
+## VentaEnPapelera (trash bin)
+
+Sales with generic product codes — specifically those where `clave` starts with `CGK`, `CGQ`, or `CGA` — can be moved to a trash bin. This hides them from the main assignment view without deleting them.
+
+```prisma
+model VentaEnPapelera {
+  id          Int      @id @default(autoincrement())
+  ventaId     Int      @unique
+  fechaMovido DateTime @default(now())
+  movidoPorId String
+  motivo      String?
+}
+```
+
+**To move sales to the trash bin:**
+1. In the search results, select one or more CGK/CGQ/CGA sales using the checkboxes.
+2. Click **Mover a Papelera**.
+
+**To recover a sale from the trash:**
+1. Click the **Papelera** action card to open the trash bin modal.
+2. Find the sale by folio or product key.
+3. Click the restore icon to return it to the main list.
+
+<Warning>
+  Cleaning the trash bin permanently deletes all records in `VentaEnPapelera`. This action cannot be undone.
+</Warning>
+
+### CGK code resolution
+
+When a sale uses the generic code `CGK`, you can link it to the real product it represents:
+
+1. Click the **Actualizar Folio CGK** action on the sale.
+2. Enter the real product `clave` in the search field.
+3. Confirm the match. The sale's `claveAlias` field is updated to the real clave, and all subsequent inventory availability checks use the real product's stock.
+
+## Automatic inventory assignment
+
+Navigate to **Ventas → Asignación Automática** to let the system propose optimal inventory assignments based on available stock and pending orders. This workflow is suited for batch processing when you want the system to prioritize and suggest matches rather than handling each folio manually.

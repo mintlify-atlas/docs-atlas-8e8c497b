@@ -1,0 +1,143 @@
+---
+title: "Finance Reports"
+description: "Financial analysis endpoint that aggregates sales revenue, costs, margins, and supplier delivery times for a given date range."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## POST /api/finanzas/analisis
+
+Calculates financial metrics for all non-cancelled sales within the specified date range. Returns aggregated breakdowns by day, branch, product group, supplier, and per-product.
+
+**Request body**
+
+<ParamField body="fechaInicio" type="string" required>
+  Start date in ISO 8601 format (e.g. `"2024-01-01"`).
+</ParamField>
+
+<ParamField body="fechaFin" type="string" required>
+  End date in ISO 8601 format (e.g. `"2024-03-31"`).
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "fechaInicio": "2024-01-01",
+  "fechaFin": "2024-03-31"
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "data": {
+    "resumenGeneral": {
+      "totalVentas": 1250000.00,
+      "totalCostos": 875000.00,
+      "margenGlobal": 30.00,
+      "totalProductosVendidos": 845,
+      "gananciaTotal": 375000.00
+    },
+    "ventasPorDia": [
+      { "fecha": "2024-01-01", "monto": 45000.00 }
+    ],
+    "ventasPorSucursal": [
+      { "sucursal": "QRO", "monto": 620000.00 },
+      { "sucursal": "Sin Sucursal", "monto": 630000.00 }
+    ],
+    "ventasPorGrupo": [
+      { "grupo": "SALA", "ventas": 480000.00, "unidades": 320 }
+    ],
+    "ventasPorProveedor": [
+      { "proveedor": "LOMARTI", "ventas": 310000.00, "unidades": 210 }
+    ],
+    "topProductos": [
+      { "clave": "SL-001", "descripcion": "Sillón individual", "unidades": 85, "ventas": 297500.00, "grupo": "SALA" }
+    ],
+    "margenesPorGrupo": [
+      { "grupo": "SALA", "ventas": 480000.00, "costos": 336000.00, "margen": 30.00 }
+    ],
+    "margenesPorProveedor": [
+      { "proveedor": "LOMARTI", "ventas": 310000.00, "costos": 217000.00, "margen": 30.00 }
+    ],
+    "tiemposEntregaProveedor": [
+      { "proveedor": "TIKAN", "promedio": 75.9, "minimo": 5, "maximo": 125 }
+    ]
+  }
+}
+```
+
+**Response fields**
+
+<ResponseField name="success" type="boolean">
+  `true` when the analysis completed successfully.
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  Analysis results.
+
+  <Expandable title="data fields">
+    <ResponseField name="resumenGeneral" type="object">
+      High-level financial summary.
+
+      <Expandable title="resumenGeneral fields">
+        <ResponseField name="totalVentas" type="number">Total revenue from all non-cancelled sales in the period.</ResponseField>
+        <ResponseField name="totalCostos" type="number">Total cost of goods sold (units sold × `costoNeto` from the most recent `Costo` record per product).</ResponseField>
+        <ResponseField name="margenGlobal" type="number">Overall gross margin as a percentage: `(totalVentas - totalCostos) / totalVentas * 100`.</ResponseField>
+        <ResponseField name="totalProductosVendidos" type="integer">Total units sold across all products.</ResponseField>
+        <ResponseField name="gananciaTotal" type="number">`totalVentas - totalCostos`.</ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="ventasPorDia" type="array">
+      Daily revenue totals sorted by date. Each entry: `{ fecha: string, monto: number }`.
+    </ResponseField>
+
+    <ResponseField name="ventasPorSucursal" type="array">
+      Revenue by branch, sorted descending. Each entry: `{ sucursal: string, monto: number }`.
+    </ResponseField>
+
+    <ResponseField name="ventasPorGrupo" type="array">
+      Revenue and units by product group, sorted descending by revenue. Each entry: `{ grupo: string, ventas: number, unidades: number }`.
+    </ResponseField>
+
+    <ResponseField name="ventasPorProveedor" type="array">
+      Revenue and units by supplier (excludes `Sin Proveedor`). Each entry: `{ proveedor: string, ventas: number, unidades: number }`.
+    </ResponseField>
+
+    <ResponseField name="topProductos" type="array">
+      Top 10 products by units sold. CGK, CGQ, and CGA product codes are excluded. Each entry: `{ clave, descripcion, unidades, ventas, grupo }`.
+    </ResponseField>
+
+    <ResponseField name="margenesPorGrupo" type="array">
+      Gross margin by product group, sorted descending. Each entry: `{ grupo, ventas, costos, margen }`.
+    </ResponseField>
+
+    <ResponseField name="margenesPorProveedor" type="array">
+      Gross margin by supplier, sorted descending. Excludes `Sin Proveedor` and `QUATRO`. Each entry: `{ proveedor, ventas, costos, margen }`.
+    </ResponseField>
+
+    <ResponseField name="tiemposEntregaProveedor" type="array">
+      Supplier delivery-time statistics. Each entry: `{ proveedor: string, promedio: number, minimo: number, maximo: number }` (days).
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Costo model
+
+Cost data is sourced from the `Costo` table. The most recent record per product is used for margin calculations.
+
+<ResponseField name="id" type="integer">Auto-incremented ID.</ResponseField>
+<ResponseField name="costoNeto" type="string | null">Net purchase cost per unit (Decimal as string).</ResponseField>
+<ResponseField name="dto" type="string | null">Standard discount percentage applied by the supplier.</ResponseField>
+<ResponseField name="dtoBf" type="string | null">Best-friend discount percentage.</ResponseField>
+<ResponseField name="gastos" type="object | null">JSON object for additional costs such as freight. Structure is free-form.</ResponseField>
+<ResponseField name="productoId" type="integer">Foreign key to `Producto`.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>

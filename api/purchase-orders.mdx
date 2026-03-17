@@ -1,0 +1,292 @@
+---
+title: "Purchase Orders"
+description: "Create, list, update, and delete OrdenCompra records. Manage the full purchase order lifecycle from BORRADOR to RECIBIDA_COMPLETA."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+## Estado lifecycle
+
+```
+BORRADOR → ENVIADA → RECIBIDA_PARCIAL → RECIBIDA_COMPLETA
+                  └→ CANCELADA
+```
+
+When a purchase order transitions from `BORRADOR` to `ENVIADA`, stock is automatically added to CEDIS FU for each product line that has a matching catalog entry.
+
+---
+
+## GET /api/ordenes-compra
+
+Lists purchase orders with optional filters.
+
+**Query parameters**
+
+<ParamField query="estado" type="string">
+  Filter by order state: `BORRADOR`, `ENVIADA`, `RECIBIDA_PARCIAL`, `RECIBIDA_COMPLETA`, `CANCELADA`, or `ALL`. Omit to return all.
+</ParamField>
+
+<ParamField query="conDanos" type="boolean">
+  If `true`, returns only orders that have at least one damaged item in a reception.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Maximum records to return. Defaults to `50`.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/ordenes-compra?estado=ENVIADA&limit=20
+```
+
+**Example response** — `200 OK`
+
+```json
+[
+  {
+    "id": 7,
+    "folio": "OC-2024-007",
+    "fechaOrden": "2024-03-01T10:00:00.000Z",
+    "fechaEntrega": "2024-04-01T00:00:00.000Z",
+    "estado": "ENVIADA",
+    "descuento": "0.00",
+    "contemplarIVA": false,
+    "observaciones": null,
+    "incumplimientoProveedor": false,
+    "proveedorId": 3,
+    "creadoPorId": "uuid-v4",
+    "proveedor": { "id": 3, "nombre": "LOMARTI", "rfc": "LOM010101AAA", "razonSocial": "Lomarti S.A. de C.V." },
+    "creadoPor": { "id": "uuid-v4", "name": "Ana García", "email": "ana@empresa.com" },
+    "detalles": [
+      {
+        "id": 20,
+        "codProveedor": "P-SL-001",
+        "codKassel": "SL-001",
+        "modKassel": "LUNA",
+        "descripcion": "Sillón individual tapizado",
+        "cantidad": 10,
+        "precioAnterior": "3200.00",
+        "precioActual": "3500.00",
+        "descuento": "0.00",
+        "contemplarIVA": false
+      }
+    ],
+    "subtotal": 35000,
+    "total": 35000,
+    "itemsCount": 1,
+    "recepcionesCount": 0,
+    "tieneDanos": false,
+    "totalDanado": 0
+  }
+]
+```
+
+---
+
+## GET /api/ordenes-compra/[id]
+
+Returns a single purchase order with full detail including reception history and calculated totals.
+
+**Path parameters**
+
+<ParamField path="id" type="integer" required>
+  Purchase order ID.
+</ParamField>
+
+---
+
+## POST /api/ordenes-compra
+
+Creates a new purchase order in `BORRADOR` state.
+
+**Request body**
+
+<ParamField body="folio" type="string" required>
+  Unique order identifier (e.g. `"OC-2024-008"`). Must not already exist.
+</ParamField>
+
+<ParamField body="proveedor" type="string">
+  Supplier name. Used to look up or create the `Proveedor` record.
+</ParamField>
+
+<ParamField body="rfc" type="string">
+  Supplier RFC. If provided, takes precedence over name for supplier lookup.
+</ParamField>
+
+<ParamField body="nombreRFC" type="string">
+  Supplier legal name (`razonSocial`). Stored if a new supplier is created.
+</ParamField>
+
+<ParamField body="fechaEntrega" type="string">
+  Expected delivery date (ISO 8601).
+</ParamField>
+
+<ParamField body="descuento" type="number">
+  Global discount percentage (0–100). Defaults to `0`.
+</ParamField>
+
+<ParamField body="contemplarIVA" type="boolean">
+  Whether prices include VAT (IVA 16%). Defaults to `false`.
+</ParamField>
+
+<ParamField body="productos" type="array" required>
+  Array of order line items.
+
+  <Expandable title="line item fields">
+    <ParamField body="codProveedor" type="string">
+      Supplier's own product code.
+    </ParamField>
+    <ParamField body="codKassel" type="string">
+      Internal Kassel code. Used to link to the product catalog.
+    </ParamField>
+    <ParamField body="modKassel" type="string">
+      Internal Kassel model.
+    </ParamField>
+    <ParamField body="descripcion" type="string">
+      Product description.
+    </ParamField>
+    <ParamField body="cantidad" type="integer" required>
+      Quantity ordered.
+    </ParamField>
+    <ParamField body="precioAnterior" type="number">
+      Price from the previous purchase order (for reference).
+    </ParamField>
+    <ParamField body="precioActual" type="number" required>
+      Agreed unit price.
+    </ParamField>
+    <ParamField body="descuento" type="number">
+      Line-level discount percentage (0–100).
+    </ParamField>
+    <ParamField body="contemplarIVA" type="boolean">
+      Whether this line's price includes IVA.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "folio": "OC-2024-008",
+  "proveedor": "LOMARTI",
+  "rfc": "LOM010101AAA",
+  "fechaEntrega": "2024-04-15",
+  "descuento": 5,
+  "contemplarIVA": false,
+  "productos": [
+    {
+      "codProveedor": "P-SL-001",
+      "codKassel": "SL-001",
+      "modKassel": "LUNA",
+      "descripcion": "Sillón individual tapizado",
+      "cantidad": 10,
+      "precioAnterior": 3200,
+      "precioActual": 3500,
+      "descuento": 0,
+      "contemplarIVA": false
+    }
+  ]
+}
+```
+
+**Example response** — `201 Created`
+
+```json
+{
+  "mensaje": "Orden de compra creada exitosamente",
+  "ordenCompra": { ... }
+}
+```
+
+---
+
+## PATCH /api/ordenes-compra/[id]
+
+Updates the `estado` of an existing purchase order. Only the user who created the order can modify it.
+
+<Warning>
+Changing `estado` from `BORRADOR` to `ENVIADA` automatically adds stock to CEDIS FU for all linked catalog products. This operation cannot be undone through the API.
+</Warning>
+
+**Path parameters**
+
+<ParamField path="id" type="integer" required>
+  Purchase order ID.
+</ParamField>
+
+**Request body**
+
+<ParamField body="estado" type="string" required>
+  New state. Must be a valid `EstadoOrdenCompra` value: `BORRADOR`, `ENVIADA`, `RECIBIDA_PARCIAL`, `RECIBIDA_COMPLETA`, or `CANCELADA`.
+</ParamField>
+
+**Example request**
+
+```json
+{ "estado": "ENVIADA" }
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "mensaje": "Orden actualizada exitosamente",
+  "ordenCompra": { ... }
+}
+```
+
+---
+
+## PUT /api/ordenes-compra/[id]
+
+Replaces the full content of an existing purchase order (header and line items). Only available to the order creator.
+
+**Path parameters**
+
+<ParamField path="id" type="integer" required>
+  Purchase order ID.
+</ParamField>
+
+**Request body**
+
+Same schema as `POST /api/ordenes-compra`. All existing line items are deleted and replaced.
+
+---
+
+## DELETE /api/ordenes-compra/[id]
+
+Permanently deletes a purchase order. Only available to the order creator.
+
+<Warning>
+Deletion fails with `400` if the order already has reception records. Cancel the order instead using `PATCH` with `estado: "CANCELADA"`.
+</Warning>
+
+**Path parameters**
+
+<ParamField path="id" type="integer" required>
+  Purchase order ID.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{ "mensaje": "Orden eliminada exitosamente" }
+```
+
+## OrdenCompra model
+
+<ResponseField name="id" type="integer">Auto-incremented ID.</ResponseField>
+<ResponseField name="folio" type="string">Unique order number (e.g. `OC-2024-001`).</ResponseField>
+<ResponseField name="fechaOrden" type="string">ISO 8601 creation timestamp.</ResponseField>
+<ResponseField name="fechaEntrega" type="string | null">Expected delivery date.</ResponseField>
+<ResponseField name="estado" type="string">Order state enum: `BORRADOR` | `ENVIADA` | `RECIBIDA_PARCIAL` | `RECIBIDA_COMPLETA` | `CANCELADA`.</ResponseField>
+<ResponseField name="descuento" type="string">Global discount as percentage string (e.g. `"5.00"`).</ResponseField>
+<ResponseField name="contemplarIVA" type="boolean">Whether prices include IVA.</ResponseField>
+<ResponseField name="observaciones" type="string | null">General notes.</ResponseField>
+<ResponseField name="incumplimientoProveedor" type="boolean">Set to `true` when the supplier did not fulfil the order and shortfalls have been cancelled.</ResponseField>
+<ResponseField name="fechaCancelacionFaltantes" type="string | null">Timestamp when shortfalls were cancelled.</ResponseField>
+<ResponseField name="proveedorId" type="integer">Foreign key to `Proveedor`.</ResponseField>
+<ResponseField name="creadoPorId" type="string">UUID of the user who created the order.</ResponseField>

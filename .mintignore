@@ -5,3 +5,10 @@
 # Draft content
 drafts/
 *.draft.mdx
+
+# Legacy Mintlify starter kit boilerplate (not part of this site)
+essentials/
+ai-tools/
+api-reference/
+development.mdx
+snippets/

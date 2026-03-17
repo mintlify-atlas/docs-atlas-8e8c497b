@@ -1,0 +1,192 @@
+---
+title: "Purchases"
+description: "Create and manage purchase orders, receive merchandise, handle damage claims, and track supplier payables."
+---
+
+The **Compras** module covers the full lifecycle of acquiring merchandise: from drafting an order to receiving goods and managing any damage or shortfall that occurs in transit or at the warehouse.
+
+## Purchase order lifecycle
+
+Every purchase order (`OrdenCompra`) moves through a defined set of states:
+
+```
+BORRADOR → ENVIADA → RECIBIDA_PARCIAL → RECIBIDA_COMPLETA
+                  ↘ CANCELADA
+```
+
+| State | Meaning |
+|-------|---------|
+| `BORRADOR` | Order created but not yet confirmed to the supplier |
+| `ENVIADA` | Order confirmed; waiting for merchandise to arrive |
+| `RECIBIDA_PARCIAL` | At least one receipt recorded, but outstanding quantities remain |
+| `RECIBIDA_COMPLETA` | All ordered quantities have been received |
+| `CANCELADA` | Order was cancelled |
+
+## Creating a purchase order
+
+Navigate to **Compras → Órdenes de Compra** and click **Nueva Orden**.
+
+<Steps>
+  <Step title="Select the supplier">
+    Choose from the `Proveedor` list. The form auto-fills `nombre`, `rfc`, and `razonSocial` from the supplier record. If the supplier's tax data is outdated, enable **Editar datos del proveedor** to update it in place — changes are saved back to the `Proveedor` record on submit.
+  </Step>
+  <Step title="Set the folio and delivery date">
+    The folio (e.g. `OC-2024-001`) is auto-generated from the last sequential order. Set `fechaEntrega` to the expected arrival date. Optionally enter a `folioVenta` if this order was triggered by a specific sale folio.
+  </Step>
+  <Step title="Add line items">
+    Add one `DetalleOrdenCompra` row per product:
+
+    | Field | Description |
+    |-------|-------------|
+    | `codProveedor` | The supplier's own product code |
+    | `codKassel` | Internal Kassel/Stockël product key |
+    | `modKassel` | Internal model reference |
+    | `descripcion` | Product description |
+    | `cantidad` | Quantity ordered |
+    | `precioAnterior` | Reference price from the last order (auto-filled) |
+    | `precioActual` | Agreed price for this order |
+    | `descuento` | Per-line discount percentage |
+    | `contemplarIVA` | Whether the price includes VAT |
+
+    When you type a `codKassel`, the system looks up previous orders to auto-fill `codProveedor` and `precioAnterior`.
+  </Step>
+  <Step title="Apply pending damage charges (optional)">
+    If the selected supplier has unresolved damage charges (`GestionDano` records with `estadoCobro = PENDIENTE`), a panel appears listing them. Select the charges to apply as a discount against this order. The applied amount appears as a negative line in the Excel export.
+  </Step>
+  <Step title="Export or save">
+    - Click **Guardar** to save the order as `BORRADOR`.
+    - Click **Exportar Excel** to generate a formatted order sheet using the Excel template (maximum 7 line items).
+  </Step>
+  <Step title="Confirm the order">
+    Once you have sent the order to the supplier, mark it as **Enviada**. The order moves to `ENVIADA` state and becomes available for receiving.
+  </Step>
+</Steps>
+
+<Note>
+  The Excel export is protected to prevent editing and is intended for sending to the supplier as the official order document.
+</Note>
+
+### Auto-creating an order from the sales module
+
+When you try to assign inventory for a sale and the product has zero stock, the sales assignment page offers a shortcut to create a purchase order. Click **Ir a Órdenes de Compra** — the product key, description, quantity, and supplier are pre-filled in the new order form.
+
+## Receiving merchandise
+
+Navigate to **Compras → Recepción** to register the physical arrival of goods against open purchase orders.
+
+The page lists all orders in `ENVIADA` or `RECIBIDA_PARCIAL` state. Orders with outstanding quantities appear highlighted in amber with a **RECEPCIÓN PARCIAL** badge.
+
+### Receiving workflow
+
+<Steps>
+  <Step title="Select the order">
+    Click **Registrar Recepción** on the order you are receiving. A modal opens with a line-item table for every `DetalleOrdenCompra` in the order.
+
+    For partially received orders, the table also shows **Ya Recibido** and **Faltante** columns to help you track what remains.
+  </Step>
+  <Step title="Enter received quantities">
+    For each product line, enter:
+    - **Recibir Ahora** — units received in good condition (`cantidadRecibida`)
+    - **Recibo con Daños** — units received with damage (`cantidadDanada`)
+
+    The table shows a real-time indicator: **Completo**, **faltan N**, or **+N de más** based on the running total versus the ordered quantity.
+  </Step>
+  <Step title="Record damage reasons">
+    If `cantidadDanada > 0` for any line, a dropdown appears requiring you to select a `MotivoDano`:
+
+    | Value | Meaning |
+    |-------|---------|
+    | `DANO_EN_TRASLADO` | Damaged during shipping |
+    | `DANO_EN_DESCARGA` | Damaged during unloading |
+    | `DANO_EN_MANIOBRA` | Damaged during handling |
+    | `DANO_EN_ALMACEN` | Damaged while being stored |
+
+    You cannot confirm the receipt until every damaged line has a motive selected.
+  </Step>
+  <Step title="Confirm the receipt">
+    Click **Confirmar Recepción**. A `Recepcion` record is created along with `DetalleRecepcion` rows for each line. The order state automatically advances:
+    - To `RECIBIDA_PARCIAL` if any ordered quantities remain outstanding.
+    - To `RECIBIDA_COMPLETA` when all quantities are accounted for.
+  </Step>
+</Steps>
+
+<Warning>
+  If the total received for a product (current + prior receipts) exceeds the ordered quantity, the system shows a **sobre-recepción** warning. You must explicitly accept this before proceeding.
+</Warning>
+
+### Recepcion model
+
+```prisma
+model Recepcion {
+  id                    Int      @id @default(autoincrement())
+  fechaRecepcion        DateTime @default(now())
+  observaciones         String?
+  excedentesGestionados Boolean  @default(false)
+  ordenCompraId         Int
+  recibidoPorId         String
+}
+```
+
+### DetalleRecepcion model
+
+```prisma
+model DetalleRecepcion {
+  id               Int         @id @default(autoincrement())
+  cantidadRecibida Int         @default(0)
+  cantidadDanada   Int         @default(0)
+  motivoDano       MotivoDano?
+  observaciones    String?
+  recepcionId      Int
+  detalleOrdenCompraId Int
+  productoId       Int?
+}
+```
+
+## Damage management
+
+When a receipt includes damaged goods, you must decide what to do with them. Open **Compras → Órdenes → Daños** to manage unresolved damage records.
+
+For each `DetalleRecepcion` with `cantidadDanada > 0`, choose a `DecisionDano`:
+
+| Decision | Meaning |
+|----------|---------|
+| `REPARAR_Y_COBRAR_PROVEEDOR` | Keep the goods, repair them, and deduct the cost from the supplier's next order |
+| `REPARAR_CULPA_INTERNA` | Keep the goods and absorb the repair cost internally |
+| `DEVOLVER_Y_PEDIR_REPOSICION` | Return the goods to the supplier and request replacement |
+
+If you choose `REPARAR_Y_COBRAR_PROVEEDOR`, set a `montoCobro` (fixed MXN amount). The charge is tracked as a `GestionDano` record with `estadoCobro = PENDIENTE` until it is applied to a future order.
+
+## Canceling outstanding items
+
+If a supplier fails to deliver all ordered items and you decide not to wait, you can cancel the remaining quantities:
+
+1. Open the order in **Compras → Órdenes**.
+2. Find it in the **Por Recibir** modal.
+3. Click **Cancelar Faltantes** and confirm.
+
+This sets `incumplimientoProveedor = true` on the `OrdenCompra` and records `cantidadCancelada` on each affected `DetalleOrdenCompra`. The order advances to `RECIBIDA_COMPLETA` (considering cancelled items as resolved).
+
+## Purchase history
+
+Navigate to **Compras → Historial** to browse all completed (`RECIBIDA_COMPLETA`) and cancelled purchase orders. Use filters to search by supplier, folio, or date range.
+
+From the history view, you can also view receipt details and any damage records associated with completed orders.
+
+## OrdenCompra model reference
+
+```prisma
+model OrdenCompra {
+  id                         Int               @id @default(autoincrement())
+  folio                      String            @unique
+  fechaOrden                 DateTime          @default(now())
+  fechaEntrega               DateTime?
+  estado                     EstadoOrdenCompra @default(BORRADOR)
+  descuento                  Decimal           @default(0)
+  contemplarIVA              Boolean           @default(false)
+  observaciones              String?
+  incumplimientoProveedor    Boolean           @default(false)
+  fechaCancelacionFaltantes  DateTime?
+  proveedorId                Int
+  creadoPorId                String
+}
+```

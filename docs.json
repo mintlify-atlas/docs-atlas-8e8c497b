@@ -1,122 +1,118 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
-  "name": "Mint Starter Kit",
+  "name": "Stockël",
+  "theme": "linden",
   "colors": {
-    "primary": "#16A34A",
-    "light": "#07C983",
-    "dark": "#15803D"
+    "primary": "#1c63ec",
+    "light": "#8cb4f4",
+    "dark": "#04143c"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "https://media.brand.dev/4bfb42e9-a222-4bde-8604-b4d85434a915.png",
+  "logo": {
+    "light": "https://media.brand.dev/0d391ad6-1672-408c-b36d-56bbf5d50e46.svg",
+    "dark": "https://media.brand.dev/0d391ad6-1672-408c-b36d-56bbf5d50e46.svg"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/ChrisOmar43/stockel"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/ChrisOmar43/stockel"
+    }
+  },
   "navigation": {
     "tabs": [
       {
-        "tab": "Guides",
+        "tab": "Documentation",
         "groups": [
           {
-            "group": "Getting started",
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "deployment"]
+          },
+          {
+            "group": "Core Features",
             "pages": [
-              "index",
-              "quickstart",
-              "development"
+              "features/dashboard",
+              "features/inventory",
+              "features/sales",
+              "features/purchases",
+              "features/finances",
+              "features/suppliers",
+              "features/packages"
             ]
           },
           {
-            "group": "Customization",
+            "group": "Administration",
             "pages": [
-              "essentials/settings",
-              "essentials/navigation"
+              "administration/user-management",
+              "administration/permissions",
+              "administration/notifications"
             ]
           },
           {
-            "group": "Writing content",
+            "group": "Developer Guide",
             "pages": [
-              "essentials/markdown",
-              "essentials/code",
-              "essentials/images",
-              "essentials/reusable-snippets"
-            ]
-          },
-          {
-            "group": "AI tools",
-            "pages": [
-              "ai-tools/cursor",
-              "ai-tools/claude-code",
-              "ai-tools/windsurf"
+              "developer/architecture",
+              "developer/local-setup",
+              "developer/database-schema",
+              "developer/cicd"
             ]
           }
         ]
       },
       {
-        "tab": "API reference",
+        "tab": "API Reference",
         "groups": [
           {
-            "group": "API documentation",
+            "group": "Overview",
+            "pages": ["api/overview"]
+          },
+          {
+            "group": "Authentication",
+            "pages": ["api/auth"]
+          },
+          {
+            "group": "Inventory",
             "pages": [
-              "api-reference/introduction"
+              "api/products",
+              "api/inventory",
+              "api/stores"
             ]
           },
           {
-            "group": "Endpoint examples",
+            "group": "Sales",
             "pages": [
-              "api-reference/endpoint/get",
-              "api-reference/endpoint/create",
-              "api-reference/endpoint/delete",
-              "api-reference/endpoint/webhook"
+              "api/sales",
+              "api/inventory-assignment"
+            ]
+          },
+          {
+            "group": "Purchases",
+            "pages": [
+              "api/purchase-orders",
+              "api/receptions",
+              "api/damage-management"
+            ]
+          },
+          {
+            "group": "Finances",
+            "pages": [
+              "api/finance-reports",
+              "api/payables"
+            ]
+          },
+          {
+            "group": "Suppliers & Users",
+            "pages": [
+              "api/suppliers",
+              "api/users"
             ]
           }
         ]
       }
-    ],
-    "global": {
-      "anchors": [
-        {
-          "anchor": "Documentation",
-          "href": "https://mintlify.com/docs",
-          "icon": "book-open-cover"
-        },
-        {
-          "anchor": "Blog",
-          "href": "https://mintlify.com/blog",
-          "icon": "newspaper"
-        }
-      ]
-    }
-  },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
-  "navbar": {
-    "links": [
-      {
-        "label": "Support",
-        "href": "mailto:hi@mintlify.com"
-      }
-    ],
-    "primary": {
-      "type": "button",
-      "label": "Dashboard",
-      "href": "https://dashboard.mintlify.com"
-    }
-  },
-  "contextual": {
-    "options": [
-     "copy",
-     "view",
-     "chatgpt",
-     "claude",
-     "perplexity",
-     "mcp",
-     "cursor",
-     "vscode"
-   ]
-  },
-  "footer": {
-    "socials": {
-      "x": "https://x.com/mintlify",
-      "github": "https://github.com/mintlify",
-      "linkedin": "https://linkedin.com/company/mintlify"
-    }
+    ]
   }
 }

@@ -1,0 +1,103 @@
+---
+title: "Dashboard"
+description: "The executive summary panel giving you a real-time snapshot of inventory, sales, purchases, and financial indicators across the entire operation."
+---
+
+The dashboard is the first screen you see after logging in. It aggregates live metrics from four operational areas and surfaces the most time-sensitive information so you can act without navigating deeper into the application.
+
+<Note>
+  Sections visible on the dashboard depend on your assigned `paginasPermitidas`. Users without access to a module will not see its metric cards.
+</Note>
+
+## What the dashboard shows
+
+The dashboard is divided into five sections: a welcome banner, and one metric group each for **Inventario**, **Ventas**, **Compras**, and **Finanzas**. Below those sits a **Acciones Rápidas** panel with direct links to the most common workflows.
+
+### Inventario metrics
+
+| Card | What it measures |
+|------|------------------|
+| **Total Productos** | Count of distinct `Producto` records across all `Tienda` locations |
+| **Valor Total** | Aggregate inventory valuation in MXN |
+| **Stock Bajo** | Number of products flagged as critically low |
+| **En Tránsito** | Units currently in transit between locations |
+
+Click **Ver Detalle** to navigate directly to **Inventario → Consulta de Stock**.
+
+### Ventas metrics
+
+| Card | What it measures |
+|------|------------------|
+| **Ventas Hoy** | Orders recorded today, with day-over-day comparison |
+| **Ventas del Mes** | Total orders processed in the current calendar month |
+| **Pendientes** | Sales awaiting inventory assignment |
+| **Completadas** | Fully processed orders this month |
+
+Click **Ver Detalle** to navigate to **Ventas → Asignación Manual**.
+
+### Compras metrics
+
+| Card | What it measures |
+|------|------------------|
+| **Órdenes Activas** | Purchase orders in `BORRADOR` or `ENVIADA` state |
+| **Dañadas** | Items flagged with `cantidadDanada > 0` awaiting damage management |
+| **En Revisión** | Receipts with unresolved discrepancies |
+| **Valor Compras** | Total value of purchase orders this month |
+
+Click **Ver Detalle** to navigate to **Compras → Órdenes de Compra**.
+
+### Finanzas metrics
+
+| Card | What it measures |
+|------|------------------|
+| **Ingresos del Mes** | Total revenue for the current month |
+| **Egresos del Mes** | Operational costs for the current month |
+| **Utilidad Neta** | Net profit (ingresos − egresos) |
+| **Margen Promedio** | Blended margin percentage across all sold products |
+
+Click **Ver Detalle** to navigate to **Finanzas → Análisis**.
+
+## Acciones rápidas
+
+The quick-action panel at the bottom of the dashboard provides one-click shortcuts to the most frequent workflows, rendered as icon cards:
+
+<CardGroup cols={2}>
+  <Card title="Consultar Stock" icon="package" href="/features/inventory">
+    Jump directly to the inventory consultation page to check real-time stock levels by store location.
+  </Card>
+  <Card title="Asignación Manual" icon="shopping-cart" href="/features/sales">
+    Open the manual inventory assignment interface to assign merchandise to pending sales.
+  </Card>
+  <Card title="Órdenes de Compra" icon="file-text" href="/features/purchases">
+    Create or review purchase orders and check supplier delivery status.
+  </Card>
+  <Card title="Análisis Financiero" icon="bar-chart-3" href="/features/finances">
+    Navigate to financial analysis charts including sales trends and margin breakdowns.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Each quick-action card only appears if your account has permission for the corresponding module. Contact your administrator to request access.
+</Tip>
+
+## Navigating from the dashboard
+
+Every metric group includes a **Ver Detalle** button in the top-right corner of its section. These buttons navigate you to the relevant module page:
+
+- **Inventario → Ver Detalle** → `/inventario/consulta`
+- **Ventas → Ver Detalle** → `/ventas/asignacion-manual`
+- **Compras → Ver Detalle** → `/compras/ordenes`
+- **Finanzas → Ver Detalle** → `/finanzas/analisis`
+
+You can also use the sidebar navigation on the left to go directly to any section at any time.
+
+## Data freshness
+
+Dashboard metrics are fetched from four API endpoints in parallel when the page loads:
+
+- `/api/dashboard/inventario`
+- `/api/dashboard/ventas`
+- `/api/dashboard/compras`
+- `/api/dashboard/finanzas`
+
+The data reflects the state of the database at the moment you open or refresh the page. To see updated figures, reload the dashboard.

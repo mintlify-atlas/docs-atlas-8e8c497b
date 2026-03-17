@@ -1,80 +1,151 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Run Stockël locally using Docker Compose."
 ---
 
-## Get started in three steps
+This guide takes you from a fresh checkout to a running local instance. The entire stack — Next.js app, PostgreSQL database, and Prisma migrations — runs inside Docker, so you do not need Node.js or PostgreSQL installed on your machine.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/ChrisOmar43/stockel.git
+    cd stockel
+    ```
+  </Step>
 
-### Step 1: Set up your local environment
+  <Step title="Install Docker Desktop">
+    Docker Desktop bundles the Docker Engine and Docker Compose. Download the installer for your operating system:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    - **Windows and macOS** — [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
+    - **Linux** — [docs.docker.com/desktop/install/linux-install](https://docs.docker.com/desktop/install/linux-install/)
 
-### Step 2: Deploy your changes
+    After installation, start Docker Desktop and wait for the engine indicator to turn green before continuing.
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Create the environment file">
+    Create a `.env` file in the project root. You can copy the example file if one exists, or create it manually:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    cp .env.example .env
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    Alternatively, create `.env` with the following content:
 
-### Step 3: Go live
+    ```env .env
+    # Database connection — must match the db service credentials below
+    DATABASE_URL=postgresql://stockel_user:password123@db:5432/stockel_db
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    # PostgreSQL service credentials
+    POSTGRES_USER=stockel_user
+    POSTGRES_PASSWORD=password123
+    POSTGRES_DB=stockel_db
 
-## Next steps
+    # NextAuth / JWT
+    NEXTAUTH_SECRET=local-dev-secret-key-change-this
+    NEXTAUTH_URL=http://localhost:3000
 
-Now that you have your docs running, explore these key features:
+    # App URL (used in emails and links)
+    NEXT_PUBLIC_APP_URL=http://localhost:3000
 
-<CardGroup cols={2}>
+    # Google reCAPTCHA (required for the login/register forms)
+    NEXT_PUBLIC_RECAPTCHA_SITE_KEY=your-recaptcha-site-key
+    RECAPTCHA_SECRET_KEY=your-recaptcha-secret-key
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    # SMTP (required for email verification and password reset)
+    SMTP_HOST=smtp.example.com
+    SMTP_PORT=587
+    SMTP_SECURE=false
+    SMTP_USER=you@example.com
+    SMTP_PASS=your-smtp-password
+    EMAIL_FROM=no-reply@example.com
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    # OpenAI (required for the AI assistant)
+    OPENAI_API_KEY=sk-...
+    OPENAI_MODEL=gpt-4o
+    ```
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+    <Warning>
+      Never commit `.env` to version control. It contains credentials and secrets. The repository's `.gitignore` should already exclude it — verify this before your first commit.
+    </Warning>
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    <Note>
+      The `DATABASE_URL` hostname must be `db` (not `localhost`) because it refers to the `db` service inside the Docker network. Changing it to `localhost` will cause the app container to fail to connect.
+    </Note>
+  </Step>
 
-</CardGroup>
+  <Step title="Start the containers">
+    Run the following command from the project root:
 
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+    ```bash
+    docker-compose up -d
+    ```
+
+    This builds the Next.js image (using the multi-stage `Dockerfile`) and starts three containers:
+
+    | Container | Image | Purpose |
+    |---|---|---|
+    | `stockel_app` | Built from `./Dockerfile` | Next.js application on port 3000 |
+    | `stockel_db` | `postgres:15` | PostgreSQL database on port 5432 |
+
+    <Note>
+      The `nginx` and `certbot` services are scoped to the `prod` profile and do not start in the default local configuration.
+    </Note>
+
+    <Tip>
+      If the build fails or you want to follow progress in real time, run without the `-d` flag: `docker-compose up`. To watch logs after starting in detached mode, use `docker-compose logs app -f`.
+    </Tip>
+  </Step>
+
+  <Step title="Run database migrations">
+    Once the containers are running, apply the Prisma migrations to create the database schema:
+
+    ```bash
+    docker-compose exec app npx prisma migrate dev
+    ```
+
+    This command runs inside the `stockel_app` container and creates all tables defined in `prisma/schema.prisma`. You only need to run this once on a fresh database, or again whenever new migration files are added.
+
+    <Note>
+      If you see a connection error, wait 10–15 seconds for the PostgreSQL container to finish initializing, then retry.
+    </Note>
+  </Step>
+
+  <Step title="Open the app">
+    Navigate to [http://localhost:3000](http://localhost:3000) in your browser. You should see the Stockël landing page with **Iniciar sesión** and **Registrarse** buttons in the top-right corner.
+
+    Register your first account to get started.
+  </Step>
+</Steps>
+
+## Useful Docker commands
+
+```bash
+# Check running containers and their status
+docker-compose ps
+
+# Follow app logs in real time
+docker-compose logs app -f
+
+# Open a shell inside the app container
+docker-compose exec app sh
+
+# Stop all containers without removing volumes
+docker-compose down
+
+# Rebuild and restart (after code changes)
+docker-compose up -d --build
+
+# Apply migrations in an already-running container
+docker-compose exec app npx prisma migrate deploy
+```
+
+## Available npm scripts
+
+These scripts run inside the container but are listed here for reference:
+
+```bash
+npm run dev      # Start Next.js in development mode
+npm run build    # Produce a production build
+npm start        # Start the production server
+npm run lint     # Run ESLint
+```

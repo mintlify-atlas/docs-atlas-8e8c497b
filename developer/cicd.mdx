@@ -1,0 +1,230 @@
+---
+title: "CI/CD"
+description: "How Stockël deploys automatically to the VPS on every push to main, and how to manage the pipeline."
+---
+
+Stocklël uses **GitHub Actions** for continuous deployment. Every push to the `main` branch triggers a workflow that connects to the production VPS over SSH, pulls the latest code, rebuilds the Docker image, and runs database migrations — all without any manual intervention.
+
+## Workflow overview
+
+The workflow lives at `.github/workflows/deploy.yml`:
+
+```yaml
+name: Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy to VPS
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script: |
+            cd /root/stockel
+            git pull origin main
+            docker compose down
+            docker compose --profile prod up -d --build
+            docker compose exec -T app npx prisma migrate deploy
+            echo "Deploy completado exitosamente!"
+```
+
+### What happens on each deployment
+
+<Steps>
+  <Step title="Trigger">
+    GitHub detects a push to `main` and queues the `deploy` job on an `ubuntu-latest` runner.
+  </Step>
+
+  <Step title="SSH into the VPS">
+    The `appleboy/ssh-action@v1.0.3` action opens an SSH session to the host specified by `VPS_HOST` using the credentials from `VPS_USERNAME` and `VPS_PASSWORD`.
+  </Step>
+
+  <Step title="Pull latest code">
+    ```bash
+    cd /root/stockel
+    git pull origin main
+    ```
+
+    The project directory on the VPS is `/root/stockel`. Git pulls the exact commit that triggered the workflow.
+  </Step>
+
+  <Step title="Rebuild and restart containers">
+    ```bash
+    docker compose down
+    docker compose --profile prod up -d --build
+    ```
+
+    `docker compose down` stops and removes the running containers (but preserves the `pgdata` volume, so data is safe). The `--profile prod` flag also starts the `nginx` and `certbot` services that are excluded from the default profile. The `--build` flag forces a fresh image build from the `Dockerfile`.
+  </Step>
+
+  <Step title="Apply database migrations">
+    ```bash
+    docker compose exec -T app npx prisma migrate deploy
+    ```
+
+    Applies any pending migrations from `prisma/migrations/` to the production database. The `-T` flag disables pseudo-TTY allocation, which is required when running in a non-interactive CI context.
+  </Step>
+</Steps>
+
+**Total deployment time:** approximately 2–3 minutes from push to live.
+
+## Required GitHub Secrets
+
+You must configure these three secrets in your repository before the workflow will succeed. Go to **Settings → Secrets and variables → Actions → New repository secret**.
+
+| Secret name | Value | Description |
+|---|---|---|
+| `VPS_HOST` | e.g. `72.62.129.32` | IP address of the VPS. Do not include `http://` or a port number. |
+| `VPS_USERNAME` | `root` | SSH username used to connect to the VPS. |
+| `VPS_PASSWORD` | your VPS root password | SSH password for the connection. Consider using SSH key-based auth for higher security. |
+
+<Warning>
+  Password-based SSH authentication is convenient but less secure than key-based authentication. If you harden the VPS in the future, generate an SSH key pair and store the private key as a secret (`VPS_PRIVATE_KEY`), then update the workflow to use the `key` parameter of `appleboy/ssh-action` instead of `password`.
+</Warning>
+
+## VPS requirements
+
+The VPS must have the following configured before the first deployment:
+
+| Requirement | Details |
+|---|---|
+| **OS** | Ubuntu 24.04 LTS |
+| **Docker** | Docker Engine with the Compose plugin (`docker compose`) |
+| **Git** | Installed and configured |
+| **Repository cloned** | Project must exist at `/root/stockel` |
+| **`.env` file present** | `/root/stockel/.env` with all production values populated |
+| **Port 3000 open** | Or port 80/443 if using nginx with a domain |
+
+To provision a fresh VPS from scratch, use the `setup-vps.sh` script included in the repository root. It installs Docker, clones the repository, and creates a starter `.env` file.
+
+## Monitoring deployments
+
+To check the status of a deployment:
+
+1. Open your repository on GitHub.
+2. Click the **Actions** tab.
+3. Select the **Deploy to VPS** workflow.
+4. Click the most recent run to see the log output.
+
+Status indicators:
+
+| Icon | Meaning |
+|---|---|
+| Yellow circle | Workflow is currently running |
+| Green checkmark | Deployment succeeded |
+| Red X | Deployment failed — click the run to read the error log |
+
+## Manual deployment
+
+If the GitHub Actions runner is unavailable or you need to deploy outside of the normal workflow, you can trigger the same steps manually:
+
+```bash
+# 1. Connect to the VPS
+ssh root@72.62.129.32
+
+# 2. Move to the project directory
+cd /root/stockel
+
+# 3. Pull the latest code
+git pull origin main
+
+# 4. Rebuild and restart all services (including nginx)
+docker compose down
+docker compose --profile prod up -d --build
+
+# 5. Apply migrations
+docker compose exec -T app npx prisma migrate deploy
+```
+
+<Tip>
+  After a manual deployment, verify the application is healthy before closing your SSH session:
+
+  ```bash
+  docker compose ps
+  docker compose logs app --tail=50
+  ```
+</Tip>
+
+## Rollback procedure
+
+There is no automated rollback. To revert to a previous version:
+
+<Steps>
+  <Step title="Identify the commit to revert to">
+    ```bash
+    git log --oneline -10
+    ```
+  </Step>
+
+  <Step title="Check out the target commit on the VPS">
+    SSH into the VPS and check out the desired commit:
+
+    ```bash
+    ssh root@72.62.129.32
+    cd /root/stockel
+    git checkout <commit-sha>
+    ```
+  </Step>
+
+  <Step title="Rebuild from the previous commit">
+    ```bash
+    docker compose down
+    docker compose --profile prod up -d --build
+    ```
+
+    <Warning>
+      Do not run `prisma migrate deploy` after rolling back to a commit that pre-dates a migration — this would attempt to apply the newer migrations again. If the rollback target has fewer migrations than the current database state, you will need to revert the migration manually or restore from a database backup.
+    </Warning>
+  </Step>
+
+  <Step title="Restore main on the VPS after the hotfix">
+    Once you push a corrected commit to `main`, the CI/CD pipeline will automatically redeploy and return the VPS to the `main` branch:
+
+    ```bash
+    git checkout main
+    git pull origin main
+    ```
+
+    The next push to `main` will trigger the standard deployment.
+  </Step>
+</Steps>
+
+## Troubleshooting the pipeline
+
+### Deployment fails with SSH error
+
+Verify the three secrets (`VPS_HOST`, `VPS_USERNAME`, `VPS_PASSWORD`) are set correctly in GitHub. `VPS_HOST` must be the bare IP address — no protocol prefix, no port.
+
+### `docker compose: command not found`
+
+The VPS has `docker-compose` (v1 standalone) but not the v2 Compose plugin. Install Docker Engine with the Compose plugin following the [official Docker documentation](https://docs.docker.com/engine/install/ubuntu/), or alias the command:
+
+```bash
+ln -s /usr/libexec/docker/cli-plugins/docker-compose /usr/local/bin/docker-compose
+```
+
+### Migration step fails
+
+Check the migration error in the Actions log. Common causes:
+
+- **Schema drift** — someone ran `prisma migrate dev` locally and the generated migration conflicts with the existing database state. Review the migration file and resolve the conflict.
+- **Database unreachable** — the `db` container may not have finished starting before the migration command ran. Add a health check or a short wait in the deployment script if this occurs repeatedly.
+
+### The app starts but shows a 500 error
+
+Check the container logs:
+
+```bash
+docker compose logs app --tail=100
+```
+
+The most common cause is a missing environment variable in the production `.env` file. Compare the variable list in the [local setup guide](/developer/local-setup#environment-variables) against what is present in `/root/stockel/.env`.

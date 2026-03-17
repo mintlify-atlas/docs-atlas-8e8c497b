@@ -1,0 +1,150 @@
+---
+title: "Finances"
+description: "Analyze revenue, margins, and costs; get actionable suggestions; edit prices; and track supplier payables."
+---
+
+The **Finanzas** module provides financial visibility across the operation: how much you are selling, at what margins, what you owe suppliers, and what prices should be adjusted.
+
+## Financial analysis
+
+Navigate to **Finanzas → Análisis** to explore performance data for any date range using interactive Recharts visualizations.
+
+### Setting the analysis period
+
+Select a **Fecha Inicio** and **Fecha Fin**. The page automatically fetches data from `/api/finanzas/analisis` whenever the dates change. The default period is the current calendar month.
+
+### Summary metrics
+
+Five summary cards appear at the top of the analysis view:
+
+| Metric | Description |
+|--------|-------------|
+| **Total Ventas** | Gross revenue for the period (sum of `montoVenta` on `Venta` records) |
+| **Total Costos** | Aggregate cost of goods sold based on `Costo.costoNeto` |
+| **Ganancia Total** | Revenue minus costs |
+| **Margen Global** | Blended margin percentage across all sold products |
+| **Productos Vendidos** | Total units sold (`vendidos`) |
+
+### Charts
+
+<CardGroup cols={2}>
+  <Card title="Evolución de ventas" icon="trending-up">
+    A Recharts `LineChart` plotting daily `montoVenta` over the selected period. Hover over any point to see the exact date and amount in MXN.
+  </Card>
+  <Card title="Ventas por sucursal" icon="bar-chart-3">
+    A `BarChart` comparing revenue across store locations (`sucursal` field on `Venta`). Use this to identify which stores are performing best.
+  </Card>
+  <Card title="Ventas por proveedor" icon="pie-chart">
+    A `PieChart` breaking down revenue by the supplier associated with each product group. Hover to see the supplier name and amount.
+  </Card>
+  <Card title="Top 10 productos" icon="package">
+    A horizontal `BarChart` of the ten best-selling products by units. Click any bar to open a detail modal showing the product's `clave`, `grupo`, `descripcion`, units sold, and total revenue.
+  </Card>
+  <Card title="Márgenes por proveedor" icon="percent">
+    A `BarChart` showing the gross margin percentage for each supplier, calculated from `montoVenta` and `costoNeto`.
+  </Card>
+  <Card title="Tiempo de entrega" icon="clock">
+    A `ComposedChart` comparing average, minimum, and maximum delivery times per supplier, derived from purchase order history.
+  </Card>
+</CardGroup>
+
+## Suggested actions
+
+Navigate to **Finanzas → Acciones Sugeridas** to review system-generated recommendations. The module analyzes patterns in sales, stock levels, and cost data to surface prioritized actions such as reordering fast-moving products, retiring slow movers, or flagging margin anomalies.
+
+## Price editing
+
+Navigate to **Finanzas → Editar Precios** to update selling prices and cost information for products. Changes here feed into the margin calculations visible in the analysis charts.
+
+### Cost model
+
+Each product can have multiple `Costo` records over time. The most recent record is used for margin calculations.
+
+```prisma
+model Costo {
+  id        Int      @id @default(autoincrement())
+  costoNeto Decimal? // Net cost before discounts and expenses
+  dto       Decimal? // Standard discount percentage
+  dtoBf     // Best-price discount percentage
+  gastos    Json?    // Additional expense breakdown (JSON)
+  productoId Int
+  createdAt DateTime @default(now())
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `costoNeto` | Base purchase cost from the supplier |
+| `dto` | Standard discount applied to the cost |
+| `dtoBf` | Best-price (buena fe) discount |
+| `gastos` | JSON object for additional cost line items such as freight or import duties |
+
+## Reports
+
+Navigate to **Finanzas → Reportes** to export financial summaries. Reports can be filtered by date range, supplier, product group, or store location and exported for external analysis.
+
+## Payables tracking
+
+Navigate to **Compras → Pasivos** to manage amounts owed to suppliers for received merchandise.
+
+A purchase order becomes a payable once at least one `Recepcion` is recorded against it. The payable reflects the cost of goods actually received (`cantidadRecibida × precioActual`).
+
+### Payables dashboard
+
+Three summary cards show at the top:
+
+| Card | Description |
+|------|-------------|
+| **Total por pagar** | Sum of all outstanding balances across active payables |
+| **Órdenes pendientes** | Count of orders with zero payment recorded |
+| **Pagos parciales** | Count of orders with at least one partial payment |
+
+### Filtering payables
+
+Filter the payables list by:
+- **Búsqueda** — folio text search
+- **Proveedor** — supplier dropdown
+- **Tipo de entrega** — `todas`, `parciales` (partially received), or `completas` (fully received)
+
+Toggle **Ver liquidadas** to show fully paid orders with date-range and supplier filters for historical lookup.
+
+### Recording a payment
+
+<Steps>
+  <Step title="Open the order">
+    Find the order in the payables list. Click the payment icon (credit card) to open the payment modal.
+  </Step>
+  <Step title="Enter payment details">
+    Fill in:
+    - **Monto** — amount being paid (cannot exceed the outstanding balance)
+    - **Fecha de pago** — payment date
+    - **Método de pago** — `transferencia`, `cheque`, `efectivo`, or `tarjeta`
+    - **Referencia** — transfer ID, cheque number, or other reference
+  </Step>
+  <Step title="Confirm">
+    Click **Registrar Pago**. A `PagoOrdenCompra` record is created. Partial payments update the running balance; full payment liquidates the order.
+  </Step>
+</Steps>
+
+### PagoOrdenCompra model
+
+```prisma
+model PagoOrdenCompra {
+  id            Int      @id @default(autoincrement())
+  monto         Decimal  @db.Decimal(12, 2)
+  fechaPago     DateTime
+  metodoPago    String   // 'transferencia' | 'cheque' | 'efectivo' | 'tarjeta'
+  referencia    String?
+  observaciones String?
+  ordenCompraId Int
+  registradoPorId String
+}
+```
+
+### Liquidating an order
+
+Instead of a partial payment, you can liquidate an order in one step: click the checkmark icon on the order row and confirm. This creates a `PagoOrdenCompra` record for the full remaining balance and marks the order as fully paid.
+
+<Tip>
+  Use the order detail modal (eye icon) to review the full payment history for any order, including who registered each payment and when.
+</Tip>

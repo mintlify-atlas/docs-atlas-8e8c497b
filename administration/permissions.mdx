@@ -1,0 +1,167 @@
+---
+title: "Permissions"
+description: "How Stockël controls which pages each user can access using the paginasPermitidas field, predefined permission sets, and role-based shortcuts."
+---
+
+Stockel uses a page-level permission model. Instead of coarse role hierarchies, each user account carries an explicit array of page slugs (`paginasPermitidas`) that defines exactly which sections of the application they can visit. Administrators can grant or revoke individual pages or apply a predefined permission set.
+
+## How page permissions work
+
+The `paginasPermitidas` field on the `User` model is a `String[]` column in PostgreSQL. Each string is a page slug that matches a route in the application. When a user attempts to navigate to a page, the application checks whether that page's slug appears in the user's `paginasPermitidas` array.
+
+```typescript
+// From src/lib/paginas.ts
+export function tieneAccesoPagina(
+  paginasPermitidas: string[],
+  paginaId: string,
+  rol?: string
+): boolean {
+  // Admins bypass all checks
+  if (rol === 'admin') return true
+
+  // Holding the 'configuracion-usuarios' slug also grants full admin access
+  if (paginasPermitidas.includes('configuracion-usuarios')) return true
+
+  return paginasPermitidas.includes(paginaId)
+}
+```
+
+Users with an empty `paginasPermitidas` array are redirected to `/saludos` on login and cannot access any protected route.
+
+## The `rol` field
+
+The `rol` field stores `usuario` (default) or `admin`. It is kept for backward compatibility and used in two places:
+
+1. API route guards check `rol === 'admin'` to protect admin-only endpoints such as `GET /api/usuarios`.
+2. The `tieneAccesoPagina` function short-circuits to `true` for any user with `rol = 'admin'`, granting full access without consulting `paginasPermitidas`.
+
+In practice, a user becomes `admin` automatically whenever the `configuracion-usuarios` slug is added to their `paginasPermitidas`. You do not need to set `rol` manually.
+
+## The `tienda` field
+
+The `tienda` field stores the store code assigned to the user at registration (e.g. `CEDIS`, `QRO`, `LVI`). It is used to scope data queries to the user's location — for example, inventory lookups and sales assignments are filtered by `tienda` to show only data relevant to that user's store. The field defaults to `CEDIS`.
+
+<Note>
+`tienda` is an assignment, not a permission gate. It does not restrict which pages a user can visit — that is controlled exclusively by `paginasPermitidas`.
+</Note>
+
+## Route protection in middleware
+
+`src/middleware.ts` applies security headers to every request (clickjacking protection, CSP, XSS protection, content-type sniffing prevention). Route-level authorization is handled at the API and page level using the `verificarAutorizacion` helper and the `tieneAccesoRuta` function from `src/lib/paginas.ts`, which checks the user's JWT and `paginasPermitidas` against the requested route.
+
+Public routes that are always accessible without authentication:
+
+- `/login`
+- `/register`
+- `/saludos`
+- `/forgot-password`
+- `/reset-password`
+- `/verify-email`
+- `/registration-success`
+
+All other routes require a valid, non-expired JWT with a matching `sessionVersion`.
+
+## Available page slugs
+
+The following slugs are defined in `src/lib/paginas.ts` and constitute every permission you can grant a user:
+
+### Principal
+
+| Slug | Route | Description |
+|---|---|---|
+| `dashboard` | `/dashboard` | Main control panel |
+
+### Inventario
+
+| Slug | Route | Description |
+|---|---|---|
+| `inventario-consulta` | `/inventario/consulta` | Query stock and products |
+| `inventario-catalogo-productos` | `/inventario/catalogo-productos` | Manage the product catalog |
+| `inventario-catalogo-proveedores` | `/inventario/catalogo-proveedores` | Manage the supplier catalog |
+| `inventario-producto-tienda` | `/inventario/producto-tienda` | Inventory per store |
+| `inventario-paquetes-outlet` | `/inventario/paquetes` | Create and manage outlet bundles |
+
+### Ventas
+
+| Slug | Route | Description |
+|---|---|---|
+| `ventas-consulta-folios` | `/ventas/consulta-folios` | Look up sales folios |
+| `ventas-asignacion-manual` | `/ventas/asignacion-manual` | Manually assign products to folios |
+| `ventas-asignacion-automatica` | `/ventas/asignacion-automatica` | Automatic product assignment |
+
+### Compras
+
+| Slug | Route | Description |
+|---|---|---|
+| `compras-ordenes` | `/compras/ordenes` | Manage purchase orders |
+| `compras-recepcion` | `/compras/recepcion` | Record merchandise reception |
+| `compras-historial` | `/compras/historial` | Purchase history |
+| `compras-pasivos` | `/compras/pasivos` | Supplier liabilities |
+
+### Finanzas
+
+| Slug | Route | Description |
+|---|---|---|
+| `finanzas-analisis` | `/finanzas/analisis` | Financial analysis and reports |
+| `finanzas-reportes` | `/finanzas/reportes` | Financial reports |
+| `finanzas-editar-precios` | `/finanzas/editar-precios` | Edit product prices in SMueblería |
+
+### Administración
+
+| Slug | Route | Description |
+|---|---|---|
+| `admin-manejo-bases` | `/admin/manejo-bases` | Database management |
+| `admin-analisis-ventas` | `/admin/analisis-ventas` | Detailed sales analysis |
+
+### Configuración
+
+| Slug | Route | Description |
+|---|---|---|
+| `configuracion-usuarios` | `/configuracion/usuarios` | User and permissions management. **Grants admin role automatically.** |
+
+## Predefined permission sets
+
+To speed up common role assignments, the system defines several preset collections of slugs in `CONJUNTOS_PERMISOS`:
+
+| Preset | Pages included |
+|---|---|
+| **Sin Acceso** | None — user is redirected to `/saludos` |
+| **Empleado Básico** | `dashboard`, `inventario-consulta`, `ventas-consulta-folios` |
+| **Inventario** | Dashboard + all inventory pages + `compras-pasivos` |
+| **Ventas** | Dashboard + inventory lookup + all sales pages |
+| **Compras** | Dashboard + inventory lookup + all purchase pages |
+| **Gerente** | All pages except administration and user management |
+| **Administrador** | All pages — sets `rol = 'admin'` |
+
+Applying a preset replaces the user's entire `paginasPermitidas` array with the preset's slug list.
+
+## Granting page access
+
+<Steps>
+  <Step title="Open the user management page">
+    Navigate to **Configuración → Gestión de Usuarios** (`/configuracion/usuarios`). You must be logged in as an admin.
+  </Step>
+  <Step title="Find the user">
+    Use the search bar to filter by name or email, then click **Gestionar Permisos** on the target row.
+  </Step>
+  <Step title="Select permissions">
+    In the modal, either click a predefined preset (e.g. **Ventas**, **Gerente**) or toggle individual pages in the **Selección Personalizada** section. The footer shows how many pages are currently selected.
+  </Step>
+  <Step title="Save">
+    Click **Guardar Permisos**. The API updates `paginasPermitidas`, adjusts `rol` if needed, and increments `sessionVersion` to invalidate any active sessions for that user.
+  </Step>
+</Steps>
+
+<Warning>
+Adding `configuracion-usuarios` to a user's permissions automatically promotes them to `admin`, granting unrestricted access to the entire application. Only do this intentionally.
+</Warning>
+
+## Revoking page access
+
+To remove all access from a user, open **Gestionar Permisos** and click the **Sin Acceso** preset, then click **Guardar Permisos**. The user's `paginasPermitidas` is set to `[]`, their `sessionVersion` is incremented, and their active sessions are invalidated immediately.
+
+To remove access to specific pages only, deselect those pages individually in the **Selección Personalizada** section before saving.
+
+<Tip>
+After saving, the affected user will see a session-expired message the next time they make a request. They must log in again to receive a new token that reflects the updated permissions.
+</Tip>

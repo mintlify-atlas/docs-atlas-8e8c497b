@@ -1,0 +1,173 @@
+---
+title: "Architecture"
+description: "How Stockël is structured: runtime, data layer, reverse proxy, and the key decisions behind each layer."
+---
+
+Stocklël is a full-stack web application built on **Next.js 16** with the App Router. All application logic — pages, API endpoints, and background tasks — lives inside a single Node.js process. PostgreSQL provides durable storage, Prisma acts as the type-safe ORM, and Docker Compose orchestrates every service in both local and production environments.
+
+## System overview
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   Browser / Client                  │
+└────────────────────────┬────────────────────────────┘
+                         │ HTTPS
+┌────────────────────────▼────────────────────────────┐
+│           nginx (prod profile only)                  │
+│  TLS termination · HTTP→HTTPS redirect · WebSocket  │
+│  Domain: cbros.space                                │
+└────────────────────────┬────────────────────────────┘
+                         │ http://app:3000
+┌────────────────────────▼────────────────────────────┐
+│            Next.js 16 App (Node 20 Alpine)           │
+│  React 19 · App Router · API Route Handlers          │
+│  nextauth · JWT (jsonwebtoken) · Prisma ORM          │
+└────────────────────────┬────────────────────────────┘
+                         │ TCP 5432
+┌────────────────────────▼────────────────────────────┐
+│              PostgreSQL 15                           │
+│  Volume: pgdata                                     │
+└─────────────────────────────────────────────────────┘
+```
+
+In production, a **Certbot** sidecar renews Let's Encrypt certificates automatically every 12 hours. nginx reloads its config every 6 hours to pick up renewed certs without downtime.
+
+## Directory structure
+
+```
+stockel/
+├── .github/
+│   └── workflows/
+│       └── deploy.yml          # GitHub Actions CI/CD
+├── nginx/
+│   └── nginx.conf              # Reverse proxy & TLS config
+├── prisma/
+│   ├── schema.prisma           # All models and enums
+│   └── migrations/             # Prisma migration history
+├── src/
+│   ├── app/                    # Next.js App Router root
+│   │   ├── api/                # API Route Handlers
+│   │   ├── admin/              # Admin-only pages
+│   │   ├── compras/            # Purchase order pages
+│   │   ├── configuracion/      # User management pages
+│   │   ├── dashboard/          # Main dashboard
+│   │   ├── finanzas/           # Financial analysis pages
+│   │   ├── inventario/         # Inventory pages
+│   │   ├── proveedores/        # Supplier pages
+│   │   ├── ventas/             # Sales pages
+│   │   ├── login/              # Login page
+│   │   ├── register/           # Registration page
+│   │   ├── layout.tsx          # Root layout
+│   │   └── page.tsx            # Root redirect
+│   ├── components/             # Shared React components
+│   ├── hooks/                  # Custom React hooks
+│   ├── lib/                    # Server-side utilities
+│   └── middleware.ts           # Global HTTP middleware
+├── scripts/                    # One-off data scripts
+├── tests/                      # Integration test files
+├── docker-compose.yml
+├── Dockerfile
+└── next.config.ts
+```
+
+### `src/app/`
+
+All user-facing pages follow Next.js App Router conventions: each directory inside `src/app/` that contains a `page.tsx` becomes a route. API route handlers live under `src/app/api/` and are organized by domain:
+
+| API prefix | Responsibility |
+|---|---|
+| `/api/auth/` | Login, logout, registration, password reset, email verification, session check (`/me`) |
+| `/api/admin/` | Data management, sales analysis |
+| `/api/assistant/` | Kassia AI assistant (LangChain + OpenAI) |
+| `/api/costos/` | Product cost records |
+| `/api/cron/` | Scheduled background tasks |
+| `/api/dashboard/` | Dashboard summary data |
+| `/api/finanzas/` | Financial reports and pricing edits |
+| `/api/gestion-danos/` | Damaged goods decisions |
+| `/api/inventario/` | Inventory queries and assignments |
+| `/api/notificaciones/` | Inventory release and delivery notifications |
+| `/api/ordenes-compra/` | Purchase order lifecycle |
+| `/api/paquetes/` | Outlet package management |
+| `/api/pasivos/` | Supplier payment tracking |
+| `/api/productos/` | Product catalogue |
+| `/api/proveedores/` | Supplier catalogue |
+| `/api/recepciones/` | Goods reception events |
+| `/api/usuarios/` | User management |
+| `/api/ventas/` | Sales records and trash bin |
+
+### `src/components/`
+
+| Component | Purpose |
+|---|---|
+| `KassiaAssistant.tsx` | Floating AI assistant UI backed by the `/api/assistant/` route, powered by LangChain and the OpenAI API |
+| `ProtectedRoute.tsx` | Client-side wrapper that reads the current user from `useAuth` and redirects unauthenticated or unauthorized visitors before rendering children |
+| `ui/` | Shared UI primitives (buttons, inputs, modals, etc.) |
+
+### `src/hooks/`
+
+`useAuth.ts` is the only hook in the project. It calls `/api/auth/me` on mount and then polls every **30 seconds** to detect session expiry server-side. It also exposes a `logout()` function that calls `/api/auth/logout` and redirects to `/login`.
+
+### `src/lib/`
+
+| File | Purpose |
+|---|---|
+| `prisma.ts` | Singleton `PrismaClient` — reuses the global instance in development to avoid exhausting connections during hot reload |
+| `auth.ts` | JWT verification helpers, role and permission checks (`hasAccess`, `isAdmin`, `canAccessRoute`) |
+| `paginas.ts` | Canonical list of all pages and permission slugs; defines preset permission bundles (`EMPLEADO_BASICO`, `GERENTE`, `ADMIN`, etc.) |
+| `permisos-api.ts` | Middleware-style helpers for protecting API routes based on permission slugs |
+| `email.ts` | Nodemailer wrapper for transactional emails (verification, password reset) |
+| `rate-limit.ts` | In-memory rate limiter for auth endpoints |
+| `recaptcha.ts` | Google reCAPTCHA v2 server-side verification |
+| `validation.ts` | Zod-based input validation schemas |
+| `soap-client.ts` | SOAP client for external system integrations |
+| `asignacion-utils.ts` | Business logic helpers for manual inventory assignment |
+| `ai/` | LangChain agent configuration for the Kassia assistant |
+
+### `nginx/`
+
+`nginx.conf` defines two virtual servers:
+
+- **Port 80** — serves the Let's Encrypt ACME challenge path (`/.well-known/acme-challenge/`) and redirects all other traffic to HTTPS.
+- **Port 443** — terminates TLS with a Let's Encrypt certificate for `cbros.space`, then reverse-proxies all requests to `http://app:3000` with full WebSocket upgrade support and forwarding headers (`X-Real-IP`, `X-Forwarded-For`, `X-Forwarded-Proto`).
+
+The nginx service is gated behind the `prod` Docker Compose profile and is not started in local development.
+
+## Key architectural decisions
+
+### Authentication: custom JWT, not NextAuth sessions
+
+The project ships with `next-auth` as a dependency but the primary authentication flow is a **custom JWT implementation** using the `jsonwebtoken` library. After login, the API sets an HTTP-only cookie named `token`. The `useAuth` hook validates the session by fetching `/api/auth/me`, which verifies the cookie server-side on every request cycle.
+
+Key fields in the JWT payload:
+
+```ts
+interface TokenPayload {
+  userId: string
+  email: string
+  sessionVersion: number  // Increment on the User record to invalidate all sessions
+}
+```
+
+### Permission model: page-slug arrays
+
+Rather than coarse-grained RBAC, each `User` record stores a `paginasPermitidas: String[]` array of page slugs (e.g. `"inventario-consulta"`, `"compras-ordenes"`). The canonical list of slugs and their routes is defined in `src/lib/paginas.ts`. Admins bypass the array entirely — the `isAdmin` check returns `true` for the `admin` role or any user holding the `configuracion-usuarios` slug.
+
+### Middleware: security headers only
+
+`src/middleware.ts` runs on every request (excluding Next.js static assets). It does **not** perform authentication redirects — that responsibility is delegated to `ProtectedRoute` on the client and to the per-route `getUserFromToken` helper on the server. The middleware sets the following response headers globally:
+
+| Header | Value |
+|---|---|
+| `X-Frame-Options` | `DENY` |
+| `Content-Security-Policy` | `frame-ancestors 'none'` |
+| `X-Content-Type-Options` | `nosniff` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `X-XSS-Protection` | `1; mode=block` |
+
+### Prisma ORM with multi-target binary
+
+The Prisma generator targets both `native` (local development) and `linux-musl-openssl-3.0.x` (the Alpine-based Docker container). This means `prisma generate` produces binaries suitable for both environments from a single schema file.
+
+### React compiler enabled
+
+`next.config.ts` enables the experimental React Compiler (`reactCompiler: true`), which automatically memoizes components and hooks at compile time without requiring manual `useMemo` or `useCallback` annotations in most cases.

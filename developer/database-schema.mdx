@@ -1,0 +1,455 @@
+---
+title: "Database schema"
+description: "Every Prisma model, its key fields, relationships, and the enums that drive business state across Stockël."
+---
+
+Stocklël uses **PostgreSQL 15** with **Prisma 5** as the ORM. The schema is defined in `prisma/schema.prisma`. All migrations are tracked in `prisma/migrations/` and applied with `prisma migrate deploy` in production.
+
+## Datasource and generator
+
+```prisma
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+```
+
+The `binaryTargets` array ensures the generated client works both on your local machine (`native`) and inside the Alpine-based Docker container (`linux-musl-openssl-3.0.x`).
+
+## Migration approach
+
+- **Development:** `npx prisma migrate dev` — detects schema drift, creates a new migration file, and applies it.
+- **Production:** `npx prisma migrate deploy` — applies pending migrations without interactive prompts. This command runs automatically at the end of every GitHub Actions deployment.
+
+<Warning>
+  Never run `prisma migrate dev` against a production database. It can prompt for resets and is not designed for automated pipelines.
+</Warning>
+
+---
+
+## Models
+
+### User
+
+Stores all application users. Authentication is custom JWT-based; `sessionVersion` is incremented to invalidate all active sessions for a user at once.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `String` (UUID) | Primary key |
+| `email` | `String` | Unique |
+| `password` | `String` | bcrypt hash |
+| `name` | `String?` | Display name |
+| `tienda` | `String` | Assigned store, defaults to `"CEDIS"` |
+| `rol` | `String` | `"usuario"` or `"admin"`, defaults to `"usuario"` |
+| `paginasPermitidas` | `String[]` | Array of page-permission slugs |
+| `sessionVersion` | `Int` | Increment to invalidate all sessions |
+| `emailVerified` | `DateTime?` | Set when the user verifies their email |
+| `verificationToken` | `String?` | One-time email verification token |
+| `verificationTokenExpiry` | `DateTime?` | Expiry of the verification token |
+| `resetToken` | `String?` | One-time password reset token |
+| `resetTokenExpiry` | `DateTime?` | Expiry of the reset token |
+| `createdAt` / `updatedAt` | `DateTime` | Audit timestamps |
+
+**Relations:** has many `Venta`, `OrdenCompra`, `Recepcion`, `Paquete` (created and approved), `AsignacionInventario`, `PagoOrdenCompra`, `VentaEnPapelera`, and `ProductoEnTienda`.
+
+---
+
+### Producto
+
+The product catalogue. Each product can have multiple cost records, appear in multiple stores, and be included in purchase orders, packages, and sales.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `clave` | `String` | Unique internal product code |
+| `grupo` | `String?` | Product group/family |
+| `proveedor` | `String?` | Legacy supplier name (prefer the `Proveedor` relation) |
+| `modelo` | `String?` | Model identifier |
+| `categoria` | `String?` | Product category |
+| `descripcion` | `String?` | Free-text description |
+| `status` | `String` | `"activo"` or `"descontinuado"` |
+| `createdAt` | `DateTime` | Creation timestamp |
+
+---
+
+### Costo
+
+Tracks the pricing history of a product. Multiple cost records can exist per product over time.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `productoId` | `Int` | Foreign key → `Producto` |
+| `costoNeto` | `Decimal?` | Net cost |
+| `dto` | `Decimal?` | Discount percentage |
+| `dtoBf` | `Decimal?` | Best-price discount |
+| `gastos` | `Json?` | Additional cost breakdown as JSON |
+| `createdAt` | `DateTime` | Creation timestamp |
+
+---
+
+### Tienda
+
+Represents a physical store or distribution centre (CEDIS).
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `nombre` | `String` | Unique store name |
+| `ubicacion` | `String?` | Physical address or city |
+| `descripcion` | `String?` | Free-text description |
+
+**Relations:** has many `ProductoEnTienda` and `AsignacionInventario`.
+
+---
+
+### ProductoEnTienda
+
+An inventory movement log. Every stock change for a product at a store creates a new row rather than updating in place.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `cantidad_stock` | `Int` | Stock quantity after this movement |
+| `movimiento` | `String` | Movement type (e.g. `"entrada"`, `"salida"`) |
+| `fecha` | `DateTime` | Timestamp of the movement |
+| `productoId` | `Int` | Foreign key → `Producto` |
+| `tiendaId` | `Int` | Foreign key → `Tienda` |
+| `usuarioId` | `String` | Foreign key → `User` |
+
+---
+
+### Venta
+
+A sales record imported from the external point-of-sale system. The composite unique constraint prevents duplicate imports.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `clave` | `String` | Product code at time of sale |
+| `grupo` | `String` | Product group at time of sale |
+| `productos` | `String` | Product description string |
+| `tipoMovimiento` | `String` | Movement type |
+| `folio` | `String` | Sale order folio number |
+| `fecha` | `DateTime` | Sale date |
+| `fechaEntrega` | `DateTime?` | Scheduled delivery date |
+| `apartado` | `String` | Lay-away status |
+| `vendidos` | `Int` | Units sold |
+| `status` | `String` | Processing status |
+| `montoVenta` | `Decimal?` | Sale amount (12,2) |
+| `claveAlias` | `String?` | Real product key when sold under a CGK alias |
+| `productoId` | `Int` | Foreign key → `Producto` |
+| `vendedorId` | `String` | Foreign key → `User` |
+
+**Indexes:** `folio`, `clave`, `claveAlias`.
+
+---
+
+### VentaEnPapelera
+
+A soft-delete bin for sales records. Rows here are hidden from the main assignment views but can be recovered. Cascades deletion from `Venta`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `ventaId` | `Int` | Unique FK → `Venta` (one-to-one) |
+| `fechaMovido` | `DateTime` | When the record was moved to the bin |
+| `movidoPorId` | `String` | FK → `User` who moved it |
+| `motivo` | `String?` | Optional reason |
+
+---
+
+### Proveedor
+
+A standalone supplier record. Decoupled from the legacy `proveedor` string field on `Producto` to allow richer data and reporting.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `nombre` | `String` | Commercial name |
+| `rfc` | `String?` | Unique tax ID |
+| `razonSocial` | `String?` | Legal business name |
+| `direccion` | `String?` | Address |
+| `telefono` | `String?` | Phone |
+| `email` | `String?` | Contact email |
+| `contacto` | `String?` | Contact person name |
+| `activo` | `Boolean` | Soft-disable without deletion |
+| `createdAt` / `updatedAt` | `DateTime` | Audit timestamps |
+
+---
+
+### OrdenCompra
+
+The purchase order header. One order can have multiple `Recepcion` events (partial receipts).
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `folio` | `String` | Unique folio, e.g. `OC-2024-001` |
+| `fechaOrden` | `DateTime` | Creation date |
+| `fechaEntrega` | `DateTime?` | Expected delivery date |
+| `estado` | `EstadoOrdenCompra` | Current lifecycle state |
+| `descuento` | `Decimal` | Global discount percentage (0–100) |
+| `contemplarIVA` | `Boolean` | Whether prices include VAT |
+| `observaciones` | `String?` | Free text notes |
+| `incumplimientoProveedor` | `Boolean` | Supplier did not fulfil the order completely |
+| `fechaCancelacionFaltantes` | `DateTime?` | When outstanding items were cancelled |
+| `proveedorId` | `Int` | FK → `Proveedor` |
+| `creadoPorId` | `String` | FK → `User` |
+
+**Indexes:** `folio`, `proveedorId`, `estado`, `fechaOrden`.
+
+---
+
+### DetalleOrdenCompra
+
+One row per product line on a purchase order. Cascades deletion from `OrdenCompra`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `codProveedor` | `String?` | Supplier's product code |
+| `codKassel` | `String?` | Internal Kassel product code |
+| `modKassel` | `String?` | Internal Kassel model |
+| `descripcion` | `String?` | Product description |
+| `cantidad` | `Int` | Quantity ordered |
+| `cantidadCancelada` | `Int` | Units cancelled due to supplier shortfall |
+| `precioAnterior` | `Decimal` | Reference price from prior order |
+| `precioActual` | `Decimal` | Agreed price for this order |
+| `descuento` | `Decimal` | Per-line discount percentage |
+| `contemplarIVA` | `Boolean` | Whether price includes VAT |
+| `ordenCompraId` | `Int` | FK → `OrdenCompra` (cascade delete) |
+| `productoId` | `Int?` | Optional FK → `Producto` catalogue |
+
+---
+
+### Recepcion
+
+Records a single goods-receipt event. A purchase order can have multiple receptions for partial deliveries.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `fechaRecepcion` | `DateTime` | Date and time of receipt |
+| `observaciones` | `String?` | General notes |
+| `excedentesGestionados` | `Boolean` | Whether surplus units have been processed |
+| `ordenCompraId` | `Int` | FK → `OrdenCompra` |
+| `recibidoPorId` | `String` | FK → `User` |
+
+---
+
+### DetalleRecepcion
+
+One row per product line within a reception event. Links back to the corresponding `DetalleOrdenCompra` and optionally updates the `Producto` catalogue.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `cantidadRecibida` | `Int` | Units received in good condition |
+| `cantidadDanada` | `Int` | Units received damaged |
+| `motivoDano` | `MotivoDano?` | Reason for damage if `cantidadDanada > 0` |
+| `observaciones` | `String?` | Per-product notes |
+| `recepcionId` | `Int` | FK → `Recepcion` (cascade delete) |
+| `detalleOrdenCompraId` | `Int` | FK → `DetalleOrdenCompra` |
+| `productoId` | `Int?` | Optional FK → `Producto` |
+
+---
+
+### GestionDano
+
+Records the business decision made for each damaged item from a reception. One-to-one with `DetalleRecepcion`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `decision` | `DecisionDano` | Action taken on the damaged goods |
+| `montoCobro` | `Decimal?` | Fixed amount to charge the supplier |
+| `estadoCobro` | `EstadoCobro?` | Charge lifecycle state |
+| `ordenCobroId` | `Int?` | FK → the `OrdenCompra` where the charge is applied |
+| `fechaCobro` | `DateTime?` | Date the charge was applied |
+| `observaciones` | `String?` | Notes on the decision |
+| `gestionadoPor` | `String?` | Username of the person who decided |
+| `fechaGestion` | `DateTime` | Decision timestamp |
+| `detalleRecepcionId` | `Int` | Unique FK → `DetalleRecepcion` (cascade delete) |
+
+---
+
+### DevolucionMercancia
+
+Manages the return of damaged goods back to the supplier. Created from a `GestionDano` with `decision = DEVOLVER_Y_PEDIR_REPOSICION`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `folio` | `String` | Unique return note folio, e.g. `DEV-2024-001` |
+| `estado` | `EstadoDevolucion` | Return lifecycle state |
+| `cantidadDevuelta` | `Int` | Units being returned |
+| `fechaDevolucion` | `DateTime?` | Date sent to supplier |
+| `fechaReposicion` | `DateTime?` | Date replacement was received |
+| `observaciones` | `String?` | Notes |
+| `creadoPor` | `String?` | Username of creator |
+| `gestionDanoId` | `Int` | Unique FK → `GestionDano` (cascade delete) |
+| `ordenReposicionId` | `Int?` | FK → the replacement `OrdenCompra` |
+
+---
+
+### AsignacionInventario
+
+Reserves stock from a specific store for a sale folio. Supports manual and automatic assignment flows.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `folio` | `String` | Sale folio being assigned |
+| `cantidadAsignada` | `Int` | Units reserved |
+| `fechaAsignacion` | `DateTime` | When the reservation was created |
+| `fechaEntregaProgramada` | `DateTime` | Scheduled delivery to the customer |
+| `status` | `String` | `"ACTIVA"`, `"CANCELADA"`, or `"ENTREGADA"` |
+| `observaciones` | `String?` | Notes |
+| `productoId` | `Int` | FK → `Producto` |
+| `tiendaOrigenId` | `Int` | FK → `Tienda` (source store) |
+| `asignadoPorId` | `String` | FK → `User` |
+
+**Indexes:** `folio`, `productoId`, `tiendaOrigenId`, `status`, `fechaEntregaProgramada`.
+
+---
+
+### Paquete
+
+An outlet bundle composed of multiple individual products. The `estado` drives the approval and stock-deduction workflow.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `nombre` | `String` | Descriptive name, e.g. `"Comedor Completo"` |
+| `descripcion` | `String?` | Optional longer description |
+| `clave` | `String` | Unique package code, e.g. `"PKG-001"` |
+| `estado` | `EstadoPaquete` | Package lifecycle state |
+| `cantidadCreada` | `Int` | How many units were physically assembled |
+| `stockDisponible` | `Int` | Current available stock |
+| `creadoPorId` | `String` | FK → `User` |
+| `aprobadoPorId` | `String?` | FK → `User` (approver) |
+| `fechaAprobacion` | `DateTime?` | Approval timestamp |
+
+---
+
+### ComponentePaquete
+
+Defines which products — and how many units of each — make up one `Paquete`. Cascades deletion from `Paquete`.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `cantidadPorPaquete` | `Int` | Units of this product per assembled package |
+| `paqueteId` | `Int` | FK → `Paquete` (cascade delete) |
+| `productoId` | `Int` | FK → `Producto` |
+
+---
+
+### PagoOrdenCompra
+
+Records individual payments against a purchase order, supporting partial and multiple payments per order.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `monto` | `Decimal` | Payment amount (12,2) |
+| `fechaPago` | `DateTime` | Date the payment was made |
+| `metodoPago` | `String` | `"transferencia"`, `"cheque"`, `"efectivo"`, or `"tarjeta"` |
+| `referencia` | `String?` | Cheque number, transfer reference, etc. |
+| `observaciones` | `String?` | Notes |
+| `ordenCompraId` | `Int` | FK → `OrdenCompra` |
+| `registradoPorId` | `String` | FK → `User` |
+
+---
+
+### NotificacionInventario
+
+System-generated notifications for inventory events such as stock being released or delivered.
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | `Int` | Auto-increment primary key |
+| `tipo` | `String` | `"liberado"` or `"entregado"` |
+| `mensaje` | `String` | Notification body text |
+| `folio` | `String?` | Related sale folio |
+| `clave` | `String?` | Related product key |
+| `cantidad` | `Int` | Quantity affected |
+| `leida` | `Boolean` | Whether the notification has been read |
+| `createdAt` | `DateTime` | Creation timestamp |
+
+**Indexes:** `leida`, `createdAt`.
+
+---
+
+## Enums
+
+### `EstadoOrdenCompra`
+
+Drives the purchase order lifecycle.
+
+| Value | Meaning |
+|---|---|
+| `BORRADOR` | Order created but not yet sent to the supplier |
+| `ENVIADA` | Order sent, awaiting delivery |
+| `RECIBIDA_PARCIAL` | At least one partial reception has been registered |
+| `RECIBIDA_COMPLETA` | All ordered items have been received |
+| `CANCELADA` | Order cancelled |
+
+### `MotivoDano`
+
+Classifies why goods were damaged during the supply chain.
+
+| Value | Meaning |
+|---|---|
+| `DANO_EN_TRASLADO` | Damaged during transit |
+| `DANO_EN_DESCARGA` | Damaged during unloading |
+| `DANO_EN_MANIOBRA` | Damaged during handling |
+| `DANO_EN_ALMACEN` | Damaged in the warehouse |
+
+### `DecisionDano`
+
+Records the action decided for a damaged item.
+
+| Value | Meaning |
+|---|---|
+| `REPARAR_Y_COBRAR_PROVEEDOR` | Keep the item, repair it, and charge the cost to the supplier in a future order |
+| `REPARAR_CULPA_INTERNA` | Keep and repair the item; internal fault — no charge to supplier |
+| `DEVOLVER_Y_PEDIR_REPOSICION` | Return the item and request a replacement (used for critical damage) |
+
+### `EstadoCobro`
+
+Tracks whether a damage charge has been applied to a supplier.
+
+| Value | Meaning |
+|---|---|
+| `PENDIENTE` | Charge pending application |
+| `APLICADO` | Charge has been applied to a purchase order |
+| `CANCELADO` | Charge cancelled |
+
+### `EstadoDevolucion`
+
+Tracks the lifecycle of a merchandise return.
+
+| Value | Meaning |
+|---|---|
+| `PENDIENTE_ENVIO` | Return created, not yet sent to supplier |
+| `ENVIADA` | Return sent to supplier |
+| `REPUESTA` | Supplier has provided the replacement |
+| `CANCELADA` | Return cancelled |
+
+### `EstadoPaquete`
+
+Tracks the state of an outlet package.
+
+| Value | Meaning |
+|---|---|
+| `PENDIENTE` | Package defined but not yet physically assembled |
+| `CREADO` | Package assembled; stock deducted from components |
+| `RECHAZADO` | Package rejected by the purchasing team |
+| `DESARMADO` | Package disassembled; component stock returned |

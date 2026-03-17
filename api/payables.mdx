@@ -1,0 +1,192 @@
+---
+title: "Payables"
+description: "Track outstanding payments to suppliers for received purchase orders and register individual payment transactions."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## GET /api/pasivos
+
+Returns received purchase orders (`RECIBIDA_PARCIAL` or `RECIBIDA_COMPLETA`) with their outstanding balances. By default excludes fully paid orders.
+
+**Query parameters**
+
+<ParamField query="proveedorId" type="integer">
+  Filter by supplier ID.
+</ParamField>
+
+<ParamField query="busqueda" type="string">
+  Search by folio (accent-insensitive).
+</ParamField>
+
+<ParamField query="estado" type="string">
+  Payment status filter (only applies when `liquidadas` is not set):
+  - `"parciales"` — orders with partial payment (`pagado > 0` but not complete)
+  - `"completas"` — orders with no payment at all
+  - Omit for all unpaid/partially-paid orders.
+</ParamField>
+
+<ParamField query="liquidadas" type="boolean">
+  If `true`, returns only fully paid orders instead of outstanding ones.
+</ParamField>
+
+<ParamField query="fechaDesde" type="string">
+  Filter liquidated orders by liquidation date from (YYYY-MM-DD). Only effective with `liquidadas=true`.
+</ParamField>
+
+<ParamField query="fechaHasta" type="string">
+  Filter liquidated orders by liquidation date to (YYYY-MM-DD). Only effective with `liquidadas=true`.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/pasivos?proveedorId=3&estado=parciales
+```
+
+**Example response** — `200 OK`
+
+```json
+[
+  {
+    "id": 7,
+    "folio": "OC-2024-007",
+    "proveedor": { "id": 3, "nombre": "LOMARTI", "rfc": "LOM010101AAA", "razonSocial": "Lomarti S.A. de C.V." },
+    "fechaOrden": "2024-03-01T10:00:00.000Z",
+    "fechaRecepcion": "2024-03-17T13:00:00.000Z",
+    "fechaLiquidacion": null,
+    "estado": "RECIBIDA_COMPLETA",
+    "total": 33250.00,
+    "pagado": 15000.00,
+    "itemsCount": 1,
+    "totalOrdenado": 10,
+    "totalRecibido": 9,
+    "totalCancelado": 0,
+    "incumplimientoProveedor": false,
+    "detalles": [
+      {
+        "id": 20,
+        "codKassel": "SL-001",
+        "descripcion": "Sillón individual tapizado",
+        "cantidadOrdenada": 10,
+        "cantidadRecibida": 9,
+        "precioActual": 3500.00
+      }
+    ]
+  }
+]
+```
+
+**Response fields**
+
+<ResponseField name="id" type="integer">Purchase order ID.</ResponseField>
+<ResponseField name="folio" type="string">Purchase order folio.</ResponseField>
+<ResponseField name="proveedor" type="object">Supplier summary with `id`, `nombre`, `rfc`, `razonSocial`.</ResponseField>
+<ResponseField name="total" type="number">Total amount owed for this order (after discounts and IVA, adjusted for cancelled quantities).</ResponseField>
+<ResponseField name="pagado" type="number">Total amount paid so far.</ResponseField>
+<ResponseField name="fechaLiquidacion" type="string | null">Date of the most recent payment. Used as the liquidation date when the order is fully paid.</ResponseField>
+<ResponseField name="incumplimientoProveedor" type="boolean">Whether shortfalls were cancelled due to supplier non-compliance.</ResponseField>
+
+---
+
+## POST /api/pasivos/[id]/pago
+
+Registers a payment against a specific purchase order. Supports partial payments.
+
+**Path parameters**
+
+<ParamField path="id" type="integer" required>
+  Purchase order ID.
+</ParamField>
+
+**Request body**
+
+<ParamField body="monto" type="number" required>
+  Payment amount in MXN. Must be greater than 0 and must not exceed the outstanding balance.
+</ParamField>
+
+<ParamField body="fechaPago" type="string" required>
+  Payment date in `YYYY-MM-DD` format.
+</ParamField>
+
+<ParamField body="metodoPago" type="string" required>
+  Payment method. One of: `"transferencia"`, `"cheque"`, `"efectivo"`, `"tarjeta"`.
+</ParamField>
+
+<ParamField body="referencia" type="string">
+  Optional reference (e.g. transfer number, cheque number).
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "monto": 18250.00,
+  "fechaPago": "2024-03-20",
+  "metodoPago": "transferencia",
+  "referencia": "TRF-20240320-001"
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "success": true,
+  "pago": {
+    "id": 15,
+    "monto": 18250.00,
+    "fechaPago": "2024-03-20T12:00:00.000Z",
+    "metodoPago": "transferencia",
+    "referencia": "TRF-20240320-001"
+  },
+  "totalOrden": 33250.00,
+  "totalPagado": 33250.00,
+  "pendiente": 0.00
+}
+```
+
+---
+
+## GET /api/pasivos/[id]/pago
+
+Returns the full payment history for a purchase order.
+
+**Path parameters**
+
+<ParamField path="id" type="integer" required>
+  Purchase order ID.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+[
+  {
+    "id": 15,
+    "monto": 18250.00,
+    "fechaPago": "2024-03-20T12:00:00.000Z",
+    "metodoPago": "transferencia",
+    "referencia": "TRF-20240320-001",
+    "observaciones": null,
+    "registradoPor": { "id": "uuid-v4", "name": "Ana García", "email": "ana@empresa.com" },
+    "createdAt": "2024-03-20T12:05:00.000Z"
+  }
+]
+```
+
+## PagoOrdenCompra model
+
+<ResponseField name="id" type="integer">Auto-incremented payment ID.</ResponseField>
+<ResponseField name="monto" type="number">Payment amount in MXN.</ResponseField>
+<ResponseField name="fechaPago" type="string">ISO 8601 payment date.</ResponseField>
+<ResponseField name="metodoPago" type="string">Payment method: `transferencia` | `cheque` | `efectivo` | `tarjeta`.</ResponseField>
+<ResponseField name="referencia" type="string | null">Reference number (e.g. transfer ID, cheque number).</ResponseField>
+<ResponseField name="observaciones" type="string | null">Additional notes.</ResponseField>
+<ResponseField name="ordenCompraId" type="integer">Foreign key to `OrdenCompra`.</ResponseField>
+<ResponseField name="registradoPorId" type="string">UUID of the user who registered the payment.</ResponseField>
+<ResponseField name="createdAt" type="string">ISO 8601 creation timestamp.</ResponseField>

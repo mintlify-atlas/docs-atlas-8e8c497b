@@ -1,0 +1,109 @@
+---
+title: "Suppliers"
+description: "Maintain the supplier catalog used across purchase orders, cost records, and financial reporting."
+---
+
+Suppliers in Stockël are first-class records in the `Proveedor` model. Every purchase order is linked to a supplier, and supplier data flows through to cost analysis, delivery time tracking, and payables management.
+
+## Supplier catalog
+
+The supplier catalog lives at **Proveedores** in the main navigation. It provides a searchable list of all registered suppliers along with their contact information and activity status.
+
+### Proveedor model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `Int` | Auto-incremented primary key |
+| `nombre` | `String` | Commercial name used throughout the application |
+| `rfc` | `String?` | Mexican tax registration number (unique, optional) |
+| `razonSocial` | `String?` | Legal registered name for invoicing |
+| `direccion` | `String?` | Fiscal or commercial address |
+| `telefono` | `String?` | Contact phone number |
+| `email` | `String?` | Contact email address |
+| `contacto` | `String?` | Name of the primary contact person |
+| `activo` | `Boolean` | Whether the supplier is active (`true` by default) |
+| `createdAt` | `DateTime` | When the record was created |
+| `updatedAt` | `DateTime` | When the record was last modified |
+
+```prisma
+model Proveedor {
+  id          Int      @id @default(autoincrement())
+  nombre      String
+  rfc         String?  @unique
+  razonSocial String?
+  direccion   String?
+  telefono    String?
+  email       String?
+  contacto    String?
+  activo      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+```
+
+## Adding a supplier
+
+<Steps>
+  <Step title="Open the supplier form">
+    Navigate to **Proveedores** and click **Nuevo Proveedor** (or the equivalent add button in your interface).
+  </Step>
+  <Step title="Fill in the required fields">
+    At minimum, provide `nombre`. All other fields are optional but recommended for complete records:
+    - `rfc` — used for tax document matching; must be unique if provided
+    - `razonSocial` — legal name printed on purchase orders
+    - `contacto` — person to call or email for order follow-up
+  </Step>
+  <Step title="Save the record">
+    Click **Guardar**. The supplier immediately becomes available in the purchase order supplier dropdown.
+  </Step>
+</Steps>
+
+## Editing a supplier
+
+You can update supplier data in two ways:
+
+1. **Directly from the supplier catalog** — find the supplier and edit any field.
+2. **Inline from a purchase order** — when creating or editing an order, enable **Editar datos del proveedor** in the order form. Changes you make there (typically to `rfc` or `razonSocial`) are saved back to the `Proveedor` record when you submit the order.
+
+<Note>
+  Inline editing from purchase orders is limited to `rfc` and `razonSocial`. Use the supplier catalog for full field editing.
+</Note>
+
+## Linking suppliers to purchase orders
+
+Every `OrdenCompra` has a mandatory `proveedorId` foreign key:
+
+```prisma
+model OrdenCompra {
+  proveedorId Int
+  proveedor   Proveedor @relation(fields: [proveedorId], references: [id])
+  ...
+}
+```
+
+When you select a supplier in the new order form, the system automatically:
+- Loads the supplier's `nombre`, `rfc`, and `razonSocial` into the order header
+- Fetches all `Producto` records associated with that supplier to enable product autocomplete in the line items
+- Checks for pending `GestionDano` charges (damage cost deductions) associated with that supplier
+
+## Supplier delivery performance
+
+The financial analysis module tracks delivery time per supplier by comparing `fechaOrden` to `fechaRecepcion` across all completed purchase orders. These metrics appear in the **Tiempo de Entrega Promedio por Proveedor** chart in **Finanzas → Análisis**.
+
+Delivery performance data also feeds into inventory consultation (`producto-tienda`), where the system uses `tiempoEntregaProveedor` to estimate how long a reorder would take if current stock is insufficient.
+
+## Deactivating a supplier
+
+Rather than deleting a supplier (which would break historical purchase orders), you can deactivate them by setting `activo = false`. Deactivated suppliers:
+
+- No longer appear in the purchase order supplier dropdown
+- Remain in the system with all historical records intact
+- Can be reactivated at any time by setting `activo = true`
+
+<Warning>
+  Do not delete a supplier that has associated `OrdenCompra` records. Deletion would fail due to the foreign key constraint. Use deactivation instead.
+</Warning>
+
+## Supplier-linked product records
+
+The `Producto` model has a `proveedor` field (a plain string, kept for compatibility). For newer workflows, the authoritative supplier link is the `OrdenCompra → Proveedor` relation. When you look up products by supplier in the purchase order form, the system queries `Producto.proveedor` to return relevant products for autocomplete.

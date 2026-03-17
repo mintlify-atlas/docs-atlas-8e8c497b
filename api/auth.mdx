@@ -1,0 +1,313 @@
+---
+title: "Authentication"
+description: "Custom JWT-based authentication endpoints for Stockël. Covers login, logout, registration, email verification, and password reset."
+---
+
+<Note>
+Stockel uses custom JWT authentication — **not** NextAuth.js. A signed token is stored in an `HttpOnly` cookie named `token` and is validated on every protected endpoint.
+</Note>
+
+---
+
+## POST /api/auth/login
+
+Authenticate with email and password. On success, sets the `token` cookie (7-day expiry) and returns the user object.
+
+<Note>
+Requires a valid Google reCAPTCHA v2 token. Rate limited to 5 attempts per email per 15 minutes.
+</Note>
+
+**Request body**
+
+<ParamField body="email" type="string" required>
+  The user's email address.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The user's password.
+</ParamField>
+
+<ParamField body="recaptchaToken" type="string" required>
+  Google reCAPTCHA v2 response token from the login form.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "email": "usuario@empresa.com",
+  "password": "MiContraseña123",
+  "recaptchaToken": "03AGdBq..."
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "message": "Login exitoso",
+  "user": {
+    "id": "uuid-v4",
+    "email": "usuario@empresa.com",
+    "name": "Ana García",
+    "tienda": "CEDIS",
+    "rol": "usuario",
+    "paginasPermitidas": ["inventario", "ventas"],
+    "emailVerified": "2024-01-15T10:00:00.000Z",
+    "sessionVersion": 1,
+    "createdAt": "2024-01-10T08:00:00.000Z",
+    "updatedAt": "2024-01-15T10:00:00.000Z"
+  }
+}
+```
+
+**Response fields**
+
+<ResponseField name="message" type="string">
+  Confirmation message.
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  Authenticated user object. Password field is excluded.
+
+  <Expandable title="user fields">
+    <ResponseField name="id" type="string">
+      UUID of the user.
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      User's email address.
+    </ResponseField>
+    <ResponseField name="name" type="string | null">
+      Display name.
+    </ResponseField>
+    <ResponseField name="tienda" type="string">
+      Store/branch assigned to the user. Defaults to `"CEDIS"`.
+    </ResponseField>
+    <ResponseField name="rol" type="string">
+      Role: `"admin"` or `"usuario"`.
+    </ResponseField>
+    <ResponseField name="paginasPermitidas" type="string[]">
+      Array of page slugs the user is allowed to access.
+    </ResponseField>
+    <ResponseField name="sessionVersion" type="integer">
+      Monotonically increasing counter used to invalidate older sessions.
+    </ResponseField>
+    <ResponseField name="emailVerified" type="string | null">
+      ISO 8601 timestamp of email verification, or `null` if not yet verified.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<Warning>
+Login is blocked with `403 Forbidden` until the user's email has been verified.
+</Warning>
+
+---
+
+## POST /api/auth/logout
+
+Invalidates the current session by incrementing `sessionVersion` in the database, then clears the `token` cookie.
+
+No request body is required.
+
+**Example response** — `200 OK`
+
+```json
+{ "message": "Logout exitoso" }
+```
+
+---
+
+## GET /api/auth/me
+
+Returns the currently authenticated user. Validates the `token` cookie and checks that `sessionVersion` matches.
+
+<Note>
+Requires a valid `token` cookie.
+</Note>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "user": {
+    "id": "uuid-v4",
+    "email": "usuario@empresa.com",
+    "name": "Ana García",
+    "tienda": "CEDIS",
+    "rol": "usuario",
+    "paginasPermitidas": ["inventario", "ventas"],
+    "sessionVersion": 1,
+    "emailVerified": "2024-01-15T10:00:00.000Z",
+    "createdAt": "2024-01-10T08:00:00.000Z",
+    "updatedAt": "2024-01-15T10:00:00.000Z"
+  }
+}
+```
+
+---
+
+## POST /api/auth/register
+
+Registers a new user account. Sends a verification email automatically. The account cannot be used until the email is verified.
+
+<Note>
+Requires a valid reCAPTCHA token. Rate limited to 1 attempt per email per hour.
+</Note>
+
+**Request body**
+
+<ParamField body="email" type="string" required>
+  Email address for the new account. Must be unique.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Password. Must meet minimum complexity requirements validated by Zod.
+</ParamField>
+
+<ParamField body="name" type="string">
+  Optional display name.
+</ParamField>
+
+<ParamField body="tienda" type="string" required>
+  Store or branch the user belongs to (e.g. `"CEDIS"`, `"QRO"`).
+</ParamField>
+
+<ParamField body="recaptchaToken" type="string" required>
+  Google reCAPTCHA v2 response token.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "email": "nuevo@empresa.com",
+  "password": "Segura!2024",
+  "name": "Carlos López",
+  "tienda": "CEDIS",
+  "recaptchaToken": "03AGdBq..."
+}
+```
+
+**Example response** — `201 Created`
+
+```json
+{
+  "message": "Usuario registrado exitosamente. Por favor, verifica tu correo electrónico.",
+  "user": {
+    "id": "uuid-v4",
+    "email": "nuevo@empresa.com",
+    "name": "Carlos López",
+    "tienda": "CEDIS",
+    "rol": "usuario",
+    "paginasPermitidas": [],
+    "emailVerified": null,
+    "sessionVersion": 1,
+    "createdAt": "2024-03-17T12:00:00.000Z",
+    "updatedAt": "2024-03-17T12:00:00.000Z"
+  }
+}
+```
+
+---
+
+## POST /api/auth/forgot-password
+
+Initiates the password-reset flow. Generates a one-time token (1-hour expiry) and emails it to the user.
+
+<Note>
+The response is always `200 OK` regardless of whether the email exists, to prevent user enumeration.
+</Note>
+
+**Request body**
+
+<ParamField body="email" type="string" required>
+  Email address associated with the account.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{ "message": "Si el email existe, recibirás un correo de recuperación" }
+```
+
+---
+
+## POST /api/auth/reset-password
+
+Completes the password reset using the token received by email.
+
+**Request body**
+
+<ParamField body="token" type="string" required>
+  The reset token from the email link. Valid for 1 hour.
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  The new password.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "token": "a3f9e2c1...",
+  "password": "NuevaContraseña!2024"
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{ "message": "Contraseña actualizada exitosamente" }
+```
+
+<Warning>
+The reset token is single-use and is deleted after a successful password change.
+</Warning>
+
+---
+
+## GET /api/auth/verify-email
+
+Verifies a user's email address using the token sent during registration.
+
+**Query parameters**
+
+<ParamField query="token" type="string" required>
+  The email verification token sent to the user's inbox.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/auth/verify-email?token=b2d1a0f3...
+```
+
+**Example response** — `200 OK`
+
+```json
+{ "message": "Email verificado exitosamente" }
+```
+
+## JWT session structure
+
+The `token` cookie contains a signed JWT with the following payload:
+
+```json
+{
+  "userId": "uuid-v4",
+  "email": "usuario@empresa.com",
+  "sessionVersion": 1,
+  "iat": 1710676800,
+  "exp": 1711281600
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `userId` | UUID matching the `User.id` in the database |
+| `email` | User's email address |
+| `sessionVersion` | Must match the current value in the database — mismatch means the session is invalidated |
+| `iat` | Issued-at timestamp (Unix) |
+| `exp` | Expiry timestamp — tokens are valid for 24 hours (cookie lives 7 days) |

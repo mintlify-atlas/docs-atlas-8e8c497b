@@ -1,0 +1,219 @@
+---
+title: "Damage Management"
+description: "Record and track decisions on damaged merchandise received from suppliers, including charge-backs and return workflows."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## POST /api/gestion-danos
+
+Records a decision for a damaged item from a reception. Each `DetalleRecepcion` with `cantidadDanada > 0` must have exactly one `GestionDano` record.
+
+If the decision is `DEVOLVER_Y_PEDIR_REPOSICION`, a `DevolucionMercancia` record is automatically created with an auto-generated folio (e.g. `DEV-2024-001`).
+
+**Request body**
+
+<ParamField body="detalleRecepcionId" type="integer" required>
+  ID of the `DetalleRecepcion` with damaged units to manage.
+</ParamField>
+
+<ParamField body="decision" type="string" required>
+  Action taken on the damaged goods. One of:
+  - `REPARAR_Y_COBRAR_PROVEEDOR` — Keep goods, repair them, charge the supplier on the next PO
+  - `REPARAR_CULPA_INTERNA` — Keep goods, repair at own cost (no charge-back)
+  - `DEVOLVER_Y_PEDIR_REPOSICION` — Return goods to supplier and request replacement
+</ParamField>
+
+<ParamField body="montoCobro" type="number">
+  Amount (MXN) to charge the supplier. Required and must be greater than 0 when `decision = REPARAR_Y_COBRAR_PROVEEDOR`.
+</ParamField>
+
+<ParamField body="observaciones" type="string">
+  Optional notes about the decision.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "detalleRecepcionId": 45,
+  "decision": "REPARAR_Y_COBRAR_PROVEEDOR",
+  "montoCobro": 850.00,
+  "observaciones": "Golpe en la estructura de madera, reparación estimada $850"
+}
+```
+
+**Example response** — `201 Created`
+
+```json
+{
+  "mensaje": "Gestión de daño registrada exitosamente",
+  "gestionDano": {
+    "id": 8,
+    "decision": "REPARAR_Y_COBRAR_PROVEEDOR",
+    "montoCobro": "850.00",
+    "estadoCobro": "PENDIENTE",
+    "ordenCobroId": null,
+    "fechaCobro": null,
+    "observaciones": "Golpe en la estructura de madera",
+    "gestionadoPor": "Ana García",
+    "fechaGestion": "2024-03-17T14:00:00.000Z",
+    "detalleRecepcionId": 45,
+    "devolucion": null
+  }
+}
+```
+
+---
+
+## GET /api/gestion-danos
+
+Retrieves damage management records. Supports two modes: all records for an order, or only items pending a decision.
+
+**Query parameters**
+
+<ParamField query="ordenCompraId" type="integer">
+  Filter decisions by purchase order ID.
+</ParamField>
+
+<ParamField query="pendientes" type="boolean">
+  If `true`, returns `DetalleRecepcion` records with `cantidadDanada > 0` that have no associated `GestionDano` yet.
+</ParamField>
+
+**Example request — pending items**
+
+```
+GET /api/gestion-danos?pendientes=true
+```
+
+---
+
+## PUT /api/gestion-danos
+
+Updates an existing damage decision (e.g. to change the charge amount or decision type).
+
+**Request body**
+
+<ParamField body="id" type="integer" required>
+  ID of the `GestionDano` record to update.
+</ParamField>
+
+<ParamField body="decision" type="string" required>
+  Updated decision. Same enum values as `POST`.
+</ParamField>
+
+<ParamField body="montoCobro" type="number">
+  Updated charge amount.
+</ParamField>
+
+<ParamField body="observaciones" type="string">
+  Updated notes.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "mensaje": "Gestión de daño actualizada exitosamente",
+  "gestionDano": { ... }
+}
+```
+
+---
+
+## GET /api/gestion-danos/cobros-pendientes
+
+Returns all charge-back items with `decision = REPARAR_Y_COBRAR_PROVEEDOR` and `estadoCobro = PENDIENTE` for a given supplier.
+
+**Query parameters**
+
+<ParamField query="proveedorId" type="integer" required>
+  Supplier ID to query pending charge-backs for.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "cobros": [
+    {
+      "id": 8,
+      "decision": "REPARAR_Y_COBRAR_PROVEEDOR",
+      "montoCobro": "850.00",
+      "estadoCobro": "PENDIENTE",
+      "fechaGestion": "2024-03-17T14:00:00.000Z",
+      "detalleRecepcion": { ... }
+    }
+  ],
+  "totalPendiente": 850.00,
+  "cantidad": 1
+}
+```
+
+<ResponseField name="cobros" type="array">Array of pending `GestionDano` records with nested reception and order details.</ResponseField>
+<ResponseField name="totalPendiente" type="number">Sum of all pending `montoCobro` values.</ResponseField>
+<ResponseField name="cantidad" type="integer">Number of pending charge-backs.</ResponseField>
+
+---
+
+## POST /api/gestion-danos/aplicar-cobros
+
+Marks selected charge-back items as `APLICADO` and links them to the purchase order where the discount will be applied.
+
+**Request body**
+
+<ParamField body="ordenCompraId" type="integer" required>
+  ID of the purchase order to which the charge-backs are applied.
+</ParamField>
+
+<ParamField body="gestionesIds" type="integer[]" required>
+  Array of `GestionDano.id` values to mark as applied.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "ordenCompraId": 15,
+  "gestionesIds": [8, 9]
+}
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "mensaje": "2 cobro(s) aplicado(s) exitosamente a la OC OC-2024-015",
+  "gestionesActualizadas": [ ... ]
+}
+```
+
+## GestionDano model
+
+<ResponseField name="id" type="integer">Auto-incremented ID.</ResponseField>
+<ResponseField name="decision" type="string">`DecisionDano` enum: `REPARAR_Y_COBRAR_PROVEEDOR` | `REPARAR_CULPA_INTERNA` | `DEVOLVER_Y_PEDIR_REPOSICION`.</ResponseField>
+<ResponseField name="montoCobro" type="string | null">Charge-back amount in MXN (Decimal as string). Only set when `decision = REPARAR_Y_COBRAR_PROVEEDOR`.</ResponseField>
+<ResponseField name="estadoCobro" type="string | null">`EstadoCobro` enum: `PENDIENTE` | `APLICADO` | `CANCELADO`. `null` for decisions without a charge-back.</ResponseField>
+<ResponseField name="ordenCobroId" type="integer | null">ID of the purchase order where the charge was applied.</ResponseField>
+<ResponseField name="fechaCobro" type="string | null">Timestamp when the charge was applied.</ResponseField>
+<ResponseField name="observaciones" type="string | null">Free-text notes.</ResponseField>
+<ResponseField name="gestionadoPor" type="string | null">Name or email of the user who made the decision.</ResponseField>
+<ResponseField name="fechaGestion" type="string">ISO 8601 timestamp of the decision.</ResponseField>
+<ResponseField name="detalleRecepcionId" type="integer">Foreign key to `DetalleRecepcion`.</ResponseField>
+
+## DevolucionMercancia model
+
+<ResponseField name="id" type="integer">Auto-incremented ID.</ResponseField>
+<ResponseField name="folio" type="string">Auto-generated return note number (e.g. `DEV-2024-001`).</ResponseField>
+<ResponseField name="estado" type="string">`EstadoDevolucion` enum: `PENDIENTE_ENVIO` | `ENVIADA` | `REPUESTA` | `CANCELADA`.</ResponseField>
+<ResponseField name="cantidadDevuelta" type="integer">Number of units being returned.</ResponseField>
+<ResponseField name="fechaDevolucion" type="string | null">Date goods were shipped back to the supplier.</ResponseField>
+<ResponseField name="fechaReposicion" type="string | null">Date replacement goods were received.</ResponseField>
+<ResponseField name="observaciones" type="string | null">Notes.</ResponseField>
+<ResponseField name="creadoPor" type="string | null">User who created the return.</ResponseField>
+<ResponseField name="gestionDanoId" type="integer">Foreign key to `GestionDano`.</ResponseField>
+<ResponseField name="ordenReposicionId" type="integer | null">ID of the replacement purchase order, once issued.</ResponseField>

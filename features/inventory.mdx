@@ -1,0 +1,161 @@
+---
+title: "Inventory"
+description: "Manage the product catalog, track stock levels across store locations, record movements, and create outlet packages."
+---
+
+The **Inventario** module covers everything related to your product master data and physical stock: what you carry, where it lives, how it moves, and how it can be bundled into outlet packages.
+
+## Product catalog
+
+Navigate to **Inventario → Catálogo de Productos** to manage the master list of all products in the system.
+
+### What the catalog shows
+
+Each product card or table row displays the following data sourced from the `Producto` model:
+
+| Field | Description |
+|-------|-------------|
+| `clave` | Unique product key (SKU) used throughout the system |
+| `grupo` | Product group or family |
+| `modelo` | Model identifier |
+| `categoria` | Product category |
+| `descripcion` | Free-text description |
+| `status` | `activo` or `descontinuado` |
+| `costoNeto` | Net cost from the most recent `Costo` record |
+
+### Browsing and filtering
+
+The catalog offers two view modes:
+
+- **Tarjetas** — a responsive card grid ideal for visual browsing
+- **Tabla** — a grouped table that collapses products by `grupo`, useful when working with large catalogs
+
+Use the search box to filter by `clave`, `descripcion`, or `modelo`. Apply multi-select dropdown filters to narrow results by **grupo** or **categoría**. Results paginate at 50 products per page.
+
+<Tip>
+  In table view, click a group header to expand or collapse that group's products. All groups start collapsed to keep the view manageable.
+</Tip>
+
+## Stock tracking by store location
+
+Navigate to **Inventario → Consulta de Stock** to see live inventory levels across every `Tienda`.
+
+The page shows each product alongside its `totalStock` — the sum of `cantidad_stock` across all store locations — and lets you expand a product row to see the breakdown per tienda.
+
+### Expanded product detail
+
+When you click a product row, the expanded view shows:
+
+- **Costo Neto** — from the linked `Costo` record
+- **Disponibilidad por Tienda** — a grid card for each `Tienda` showing:
+  - `cantidad_stock` — current quantity at that location
+  - `movimiento` — the last movement type recorded (e.g. `V` for sale, `C` for purchase)
+  - `fecha` — timestamp of the last movement
+  - `usuario` — the user who recorded it
+
+### Filtering stock
+
+You can filter the stock view simultaneously by:
+
+- Free-text search (clave or description)
+- **Grupo** — multi-select
+- **Proveedor** — multi-select
+- **Categoría** — multi-select
+- **Tienda** — multi-select
+
+When filters are active, a **Stock Filtrado** summary card appears alongside the **Total Stock** card so you can compare the filtered subset to the global total.
+
+## Inventory consultation workflow
+
+The **producto-tienda** section (internally called *Dispon*) is optimized for real-time consultation during a sales interaction. It provides a shopping cart interface for simulating a sale and immediately seeing delivery feasibility.
+
+<Steps>
+  <Step title="Search for a product">
+    Type in the search box on the left panel. Results filter in real time with a 500 ms debounce. Each row shows the product's `clave`, `descripcion`, `stockDisponible`, and any currently reserved (apartado) units from active `AsignacionInventario` records.
+  </Step>
+  <Step title="Add to the cart">
+    Click the orange **+** button to add a product to the cart on the right. The system calculates how many units are available immediately from CEDIS CD versus those requiring transfer from CEDIS FU or a new supplier order.
+  </Step>
+  <Step title="Review delivery estimate">
+    The cart summary panel shows:
+    - **Disponible ahora** — units in CEDIS CD stock
+    - **Por ordenar** — units that would require a supplier order
+    - Estimated delivery date based on `tiempoEntregaProveedor`
+    - A warning badge if units must be pulled from another store (requires manager authorization)
+  </Step>
+  <Step title="Consult or clear">
+    Use this view to quote a delivery date to the customer, then clear the cart. No stock is actually deducted at this stage — stock deductions happen through the sales assignment workflows.
+  </Step>
+</Steps>
+
+## How stock movements are recorded
+
+Every change to `cantidad_stock` is recorded as a new `ProductoEnTienda` row. The model captures:
+
+| Field | Description |
+|-------|-------------|
+| `productoId` | Which product was affected |
+| `tiendaId` | Which store location was affected |
+| `cantidad_stock` | The resulting stock quantity after the movement |
+| `movimiento` | Movement type code (e.g. `V`, `C`, `AP`, `PA`) |
+| `fecha` | Timestamp of the movement |
+| `usuarioId` | The user who triggered the movement |
+
+<Warning>
+  Stock values are stored as absolute snapshots, not deltas. Each row reflects the quantity at that point in time for that product/store combination. Always query the most recent row per `(productoId, tiendaId)` pair for the current level.
+</Warning>
+
+## Outlet packages
+
+The **Inventario → Paquetes** section lets you bundle outlet products into named packages for sale as a unit. When a package is physically assembled, its component stock is deducted and replaced by a unified package SKU.
+
+See the [Packages](/features/packages) page for the full workflow, state machine, and data model.
+
+## Data models
+
+### Producto
+
+The central record for every item in the catalog.
+
+```prisma
+model Producto {
+  id          Int      @id @default(autoincrement())
+  clave       String   @unique
+  grupo       String?
+  proveedor   String?
+  modelo      String?
+  categoria   String?
+  descripcion String?
+  status      String   @default("activo")
+  createdAt   DateTime @default(now())
+}
+```
+
+### ProductoEnTienda
+
+Records every stock movement. Query the latest row per product/store pair to get current stock.
+
+```prisma
+model ProductoEnTienda {
+  id             Int      @id @default(autoincrement())
+  cantidad_stock Int
+  movimiento     String
+  fecha          DateTime @default(now())
+  productoId     Int
+  tiendaId       Int
+  usuarioId      String
+}
+```
+
+### Tienda
+
+Represents a physical store or warehouse location.
+
+```prisma
+model Tienda {
+  id          Int     @id @default(autoincrement())
+  nombre      String  @unique
+  ubicacion   String?
+  descripcion String?
+}
+```

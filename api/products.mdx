@@ -1,0 +1,322 @@
+---
+title: "Products"
+description: "List, create, update, and delete products in the Stockël catalog."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## GET /api/productos
+
+Returns a paginated list of products with optional filters. Supports multi-value filter parameters.
+
+**Query parameters**
+
+<ParamField query="page" type="integer">
+  Page number. Defaults to `1`.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Records per page. Defaults to `50`.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Full-text search against `clave`, `descripcion`, and `modelo`. Accent-insensitive.
+</ParamField>
+
+<ParamField query="grupo" type="string[]">
+  Filter by one or more product groups. Repeat the parameter for multiple values: `?grupo=SALA&grupo=COMEDOR`.
+</ParamField>
+
+<ParamField query="proveedor" type="string[]">
+  Filter by one or more supplier names.
+</ParamField>
+
+<ParamField query="categoria" type="string[]">
+  Filter by one or more categories.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/productos?page=1&limit=50&search=sillon&grupo=SALA
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "productos": [
+    {
+      "id": 42,
+      "clave": "SL-001",
+      "grupo": "SALA",
+      "proveedor": "LOMARTI",
+      "modelo": "LUNA",
+      "categoria": "SILLONES",
+      "descripcion": "Sillón individual tapizado en tela",
+      "status": "activo",
+      "createdAt": "2024-01-10T08:00:00.000Z",
+      "costos": [
+        {
+          "id": 10,
+          "costoNeto": "3500.00",
+          "dto": "5.00",
+          "dtoBf": "2.00",
+          "gastos": { "flete": 150 },
+          "productoId": 42,
+          "createdAt": "2024-01-10T08:00:00.000Z"
+        }
+      ]
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 312,
+    "totalPages": 7
+  }
+}
+```
+
+**Response fields**
+
+<ResponseField name="productos" type="array">
+  Array of product objects.
+
+  <Expandable title="product fields">
+    <ResponseField name="id" type="integer">
+      Auto-incremented product ID.
+    </ResponseField>
+    <ResponseField name="clave" type="string">
+      Unique product code (Kassel internal code). Used as the primary business identifier.
+    </ResponseField>
+    <ResponseField name="grupo" type="string | null">
+      Product group (e.g. `SALA`, `COMEDOR`).
+    </ResponseField>
+    <ResponseField name="proveedor" type="string | null">
+      Supplier name string. For the full supplier record, see [Suppliers](/api/suppliers).
+    </ResponseField>
+    <ResponseField name="modelo" type="string | null">
+      Model identifier.
+    </ResponseField>
+    <ResponseField name="categoria" type="string | null">
+      Product category.
+    </ResponseField>
+    <ResponseField name="descripcion" type="string | null">
+      Free-text product description.
+    </ResponseField>
+    <ResponseField name="status" type="string">
+      `"activo"` or `"descontinuado"`.
+    </ResponseField>
+    <ResponseField name="createdAt" type="string">
+      ISO 8601 creation timestamp.
+    </ResponseField>
+    <ResponseField name="costos" type="array">
+      Most recent cost record for the product (array of 0–1 items).
+
+      <Expandable title="cost fields">
+        <ResponseField name="costoNeto" type="string | null">
+          Net cost (Decimal as string).
+        </ResponseField>
+        <ResponseField name="dto" type="string | null">
+          Standard discount percentage.
+        </ResponseField>
+        <ResponseField name="dtoBf" type="string | null">
+          Best-friend discount percentage.
+        </ResponseField>
+        <ResponseField name="gastos" type="object | null">
+          Arbitrary JSON object for additional expenses (e.g. freight).
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="pagination" type="object">
+  Pagination metadata.
+</ResponseField>
+
+---
+
+## GET /api/productos/[clave]
+
+Fetch a single product by its `clave` (Kassel code).
+
+**Path parameters**
+
+<ParamField path="clave" type="string" required>
+  The product's unique `clave` code.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/productos/SL-001
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "id": 42,
+  "clave": "SL-001",
+  "modelo": "LUNA",
+  "descripcion": "Sillón individual tapizado en tela",
+  "grupo": "SALA",
+  "proveedor": "LOMARTI"
+}
+```
+
+---
+
+## POST /api/productos
+
+Creates a new product. If the `proveedor` value does not match an existing `Proveedor` record by name, one is created automatically.
+
+**Request body**
+
+<ParamField body="clave" type="string" required>
+  Unique product code. Must not already exist.
+</ParamField>
+
+<ParamField body="grupo" type="string">
+  Product group.
+</ParamField>
+
+<ParamField body="proveedor" type="string">
+  Supplier name. Auto-creates a supplier record if none exists with this name.
+</ParamField>
+
+<ParamField body="modelo" type="string">
+  Model name or code.
+</ParamField>
+
+<ParamField body="categoria" type="string">
+  Category label.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Free-text description.
+</ParamField>
+
+<ParamField body="status" type="string">
+  Initial status. Defaults to `"activo"`. Accepts `"activo"` or `"descontinuado"`.
+</ParamField>
+
+**Example request**
+
+```json
+{
+  "clave": "CM-042",
+  "grupo": "COMEDOR",
+  "proveedor": "VALORE",
+  "modelo": "TOSCANA",
+  "categoria": "MESAS",
+  "descripcion": "Mesa de comedor rectangular 6 personas",
+  "status": "activo"
+}
+```
+
+**Example response** — `201 Created`
+
+```json
+{
+  "producto": {
+    "id": 100,
+    "clave": "CM-042",
+    "grupo": "COMEDOR",
+    "proveedor": "VALORE",
+    "modelo": "TOSCANA",
+    "categoria": "MESAS",
+    "descripcion": "Mesa de comedor rectangular 6 personas",
+    "status": "activo",
+    "createdAt": "2024-03-17T12:00:00.000Z",
+    "costos": []
+  }
+}
+```
+
+---
+
+## PUT /api/productos
+
+Updates an existing product. All fields except `id` are optional — only supplied fields are changed.
+
+**Request body**
+
+<ParamField body="id" type="integer" required>
+  ID of the product to update.
+</ParamField>
+
+<ParamField body="clave" type="string">
+  New unique code. Returns `400` if another product already uses this clave.
+</ParamField>
+
+<ParamField body="grupo" type="string">
+  Updated product group.
+</ParamField>
+
+<ParamField body="proveedor" type="string">
+  Updated supplier name.
+</ParamField>
+
+<ParamField body="modelo" type="string">
+  Updated model.
+</ParamField>
+
+<ParamField body="categoria" type="string">
+  Updated category.
+</ParamField>
+
+<ParamField body="descripcion" type="string">
+  Updated description.
+</ParamField>
+
+<ParamField body="status" type="string">
+  `"activo"` or `"descontinuado"`.
+</ParamField>
+
+**Example response** — `200 OK`
+
+```json
+{
+  "producto": {
+    "id": 42,
+    "clave": "SL-001",
+    "status": "descontinuado",
+    "costos": [...]
+  }
+}
+```
+
+---
+
+## DELETE /api/productos
+
+Permanently deletes a product. Returns `400` if the product has associated sales or inventory movements.
+
+**Query parameters**
+
+<ParamField query="id" type="integer" required>
+  ID of the product to delete.
+</ParamField>
+
+**Example request**
+
+```
+DELETE /api/productos?id=100
+```
+
+**Example response** — `200 OK`
+
+```json
+{ "message": "Producto eliminado exitosamente" }
+```
+
+<Warning>
+Deletion is permanent. Products with existing `Venta` or `ProductoEnTienda` records cannot be deleted — update `status` to `"descontinuado"` instead.
+</Warning>

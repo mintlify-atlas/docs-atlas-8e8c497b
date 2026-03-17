@@ -1,0 +1,199 @@
+---
+title: "Inventory"
+description: "Query stock availability and per-store stock levels across all Tienda locations."
+---
+
+<Note>
+All endpoints require a valid session cookie. See [Authentication](/api/auth).
+</Note>
+
+---
+
+## GET /api/inventario/disponibilidad
+
+Returns all active products with their current stock broken down by location, including reserved quantities from active inventory assignments.
+
+**Query parameters**
+
+<ParamField query="limit" type="integer">
+  Maximum number of products to return. Defaults to all active products.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Accent-insensitive search against `clave`, `descripcion`, and `modelo`.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/inventario/disponibilidad?search=sillon&limit=100
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "productos": [
+    {
+      "id": 42,
+      "clave": "SL-001",
+      "grupo": "SALA",
+      "proveedor": "LOMARTI",
+      "modelo": "LUNA",
+      "categoria": "SILLONES",
+      "descripcion": "Sillón individual tapizado en tela",
+      "status": "activo",
+      "stockDisponible": 8,
+      "stockTotal": 12,
+      "stockApartado": 4,
+      "stockCedisCd": 10,
+      "stockCedisFu": 2,
+      "sucursalesConStock": [
+        { "nombre": "QRO", "cantidad": 0 }
+      ],
+      "tiempoEntregaProveedor": 43,
+      "costos": [
+        { "costoNeto": "3500.00", "dto": "5.00", "dtoBf": "2.00", "gastos": null }
+      ]
+    }
+  ]
+}
+```
+
+**Response fields**
+
+<ResponseField name="productos" type="array">
+  Array of products with availability data.
+
+  <Expandable title="product availability fields">
+    <ResponseField name="stockDisponible" type="integer">
+      Units available for sale. Calculated as total stock (excluding CEDIS FU) minus units reserved in active assignments.
+    </ResponseField>
+    <ResponseField name="stockTotal" type="integer">
+      Total stock across all locations (including CEDIS FU), minus reserved units.
+    </ResponseField>
+    <ResponseField name="stockApartado" type="integer">
+      Units currently reserved in active `AsignacionInventario` records.
+    </ResponseField>
+    <ResponseField name="stockCedisCd" type="integer">
+      Units in CEDIS CD (main distribution center, `tiendaId = 1`).
+    </ResponseField>
+    <ResponseField name="stockCedisFu" type="integer">
+      Units in CEDIS FU (in-transit stock, `tiendaId = 2`). Stock is moved here when a purchase order is marked `ENVIADA` and transferred to CEDIS CD on reception.
+    </ResponseField>
+    <ResponseField name="sucursalesConStock" type="array">
+      Branch stores with a positive stock balance. Each entry has `nombre` (string) and `cantidad` (integer).
+    </ResponseField>
+    <ResponseField name="tiempoEntregaProveedor" type="integer">
+      Historical average delivery time in days for this product's supplier.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+---
+
+## GET /api/inventario/stock-tiendas
+
+Returns paginated stock levels for all products broken down per store, with the latest movement per store for each product.
+
+**Query parameters**
+
+<ParamField query="page" type="integer">
+  Page number. Defaults to `1`.
+</ParamField>
+
+<ParamField query="limit" type="integer">
+  Records per page. Defaults to `50`.
+</ParamField>
+
+<ParamField query="search" type="string">
+  Accent-insensitive search across `clave`, `descripcion`, and `modelo`.
+</ParamField>
+
+<ParamField query="grupo" type="string[]">
+  Filter by product group(s).
+</ParamField>
+
+<ParamField query="proveedor" type="string[]">
+  Filter by supplier name(s).
+</ParamField>
+
+<ParamField query="categoria" type="string[]">
+  Filter by category(ies).
+</ParamField>
+
+<ParamField query="tienda" type="string[]">
+  Limit stock breakdown to specific store names.
+</ParamField>
+
+**Example request**
+
+```
+GET /api/inventario/stock-tiendas?grupo=SALA&tienda=CEDIS+CD
+```
+
+**Example response** — `200 OK`
+
+```json
+{
+  "productos": [
+    {
+      "id": 42,
+      "clave": "SL-001",
+      "grupo": "SALA",
+      "proveedor": "LOMARTI",
+      "modelo": "LUNA",
+      "categoria": "SILLONES",
+      "descripcion": "Sillón individual tapizado en tela",
+      "status": "activo",
+      "costos": { "costoNeto": "3500.00", "dto": "5.00", "dtoBf": "2.00", "gastos": null },
+      "stockPorTienda": {
+        "CEDIS CD": { "cantidad": 10, "fecha": "2024-03-15T09:00:00.000Z", "movimiento": "ENTRADA_RECEPCION - OC: OC-2024-001", "usuario": "Ana García" },
+        "CEDIS FU": { "cantidad": 2, "fecha": "2024-03-10T11:00:00.000Z", "movimiento": "ENTRADA_OC - OC: OC-2024-001", "usuario": "Ana García" }
+      },
+      "totalStock": 12
+    }
+  ],
+  "tiendas": [
+    { "id": 1, "nombre": "CEDIS CD", "ubicacion": "Querétaro", "descripcion": null },
+    { "id": 2, "nombre": "CEDIS FU", "ubicacion": null, "descripcion": "Stock en tránsito" }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 50,
+    "total": 312,
+    "totalPages": 7
+  }
+}
+```
+
+**Response fields**
+
+<ResponseField name="productos" type="array">
+  Product list with `stockPorTienda` map and `totalStock`.
+
+  <Expandable title="stockPorTienda map">
+    The `stockPorTienda` property is an object keyed by store name. Each value includes:
+
+    <ResponseField name="cantidad" type="integer">
+      Current stock level at this store (from the latest `ProductoEnTienda` movement).
+    </ResponseField>
+    <ResponseField name="fecha" type="string">
+      ISO 8601 timestamp of the latest movement.
+    </ResponseField>
+    <ResponseField name="movimiento" type="string">
+      Movement description (e.g. `ENTRADA_RECEPCION`, `SALIDA_RECEPCION`, `RESERVA_VENTA`).
+    </ResponseField>
+    <ResponseField name="usuario" type="string">
+      Name of the user who recorded the movement.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="tiendas" type="array">
+  All store records, useful for rendering column headers. See [Stores](/api/stores).
+</ResponseField>
+
+<ResponseField name="pagination" type="object">
+  Standard pagination metadata.
+</ResponseField>

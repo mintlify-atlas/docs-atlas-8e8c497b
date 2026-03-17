@@ -1,0 +1,154 @@
+---
+title: "Packages"
+description: "Bundle outlet products into named packages, manage approval states, and track stock impact."
+---
+
+The **Paquetes Outlet** feature lets you combine individual outlet products into curated bundles — for example, a *Comedor Completo* that groups a table, chairs, and a sideboard into a single sellable unit. When a package is physically assembled, the component stock is consumed and the package itself gains its own inventory.
+
+Navigate to **Inventario → Paquetes** to access this section.
+
+## Concepts
+
+A **Paquete** is a named bundle with a unique `clave` (e.g. `PKG-001`). It consists of two or more **ComponentePaquete** records, each specifying a product and how many units of that product go into one package.
+
+Only products whose `grupo` contains `OU` (outlet group) with `stockDisponible > 0` appear as candidates for package components.
+
+## Package states
+
+```
+PENDIENTE → CREADO
+          ↘ RECHAZADO
+
+CREADO → DESARMADO
+```
+
+| State | Meaning |
+|-------|---------|
+| `PENDIENTE` | Package definition submitted; awaiting physical creation and approval |
+| `CREADO` | Package has been physically assembled; component stock deducted, package stock incremented |
+| `RECHAZADO` | Package was rejected by the purchasing team before creation |
+| `DESARMADO` | A previously created package was disassembled; component stock returned |
+
+## Creating a package
+
+The creation interface is split into three panels:
+
+- **Left panel** — searchable list of available outlet products
+- **Center panel** — package builder (name, key, components, quantity)
+- **Right panel** — list of existing packages with state filter
+
+<Steps>
+  <Step title="Add components">
+    Click the **+** button on any product in the left panel to add it as a `ComponentePaquete`. The product disappears from the available list once added. You need at least **2 components** to create a package.
+  </Step>
+  <Step title="Set quantities per component">
+    For each component in the center panel, use the **+** and **−** buttons to set `cantidadPorPaquete` — how many units of that product go into each package.
+  </Step>
+  <Step title="Calculate feasibility">
+    Once you have at least 2 components, the system automatically calls `/api/paquetes/calcular-posibles` and shows **Paquetes posibles** — the maximum number of packages you can create given current outlet stock.
+  </Step>
+  <Step title="Fill in package metadata">
+    Enter:
+    - **Nombre del Paquete** — descriptive name (e.g. `Comedor Completo`)
+    - **Clave del Paquete** — unique identifier (e.g. `PKG-001`)
+    - **Descripción** — optional free-text description
+    - **Cantidad a crear** — how many packages to assemble (1 to maximum feasible)
+  </Step>
+  <Step title="Submit">
+    Click **Crear Paquete**. A `Paquete` record is created with `estado = PENDIENTE` and `cantidadCreada` set to the requested quantity. Component stock is not yet deducted at this stage.
+  </Step>
+</Steps>
+
+<Note>
+  After creating a package, you must physically assemble it in the point-of-sale system first, then return to Stockël and mark it as created to trigger the stock adjustment.
+</Note>
+
+## Approval workflow
+
+Packages in `PENDIENTE` state require a second user to approve them by marking them as physically created. This two-step process — `creadoPor` followed by `aprobadoPor` — ensures that packages are not marked as assembled before they physically exist.
+
+| Field | Description |
+|-------|-------------|
+| `creadoPorId` | The user who submitted the package definition |
+| `aprobadoPorId` | The user who confirmed physical assembly |
+| `fechaAprobacion` | Timestamp of when the package was marked as created |
+
+### Marking a package as created
+
+<Steps>
+  <Step title="Open the package detail">
+    In the right panel, find the package in `PENDIENTE` state and click the eye icon to open its detail modal.
+  </Step>
+  <Step title="Confirm physical assembly">
+    Click **Marcar como Creado**. A confirmation dialog appears. If the package needs to be distributed across multiple store locations, a distribution modal appears listing each available tienda with a quantity input.
+  </Step>
+  <Step title="Distribute across stores (if required)">
+    If the system detects multiple tiendas, enter how many packages go to each location. The total must equal `cantidadCreada` exactly.
+  </Step>
+  <Step title="Confirm">
+    Click **Confirmar**. The package transitions to `CREADO`. Component stock is deducted and `stockDisponible` on the `Paquete` record is updated.
+  </Step>
+</Steps>
+
+## Stock impact when a package is created
+
+When a package moves to `CREADO`:
+
+1. For each `ComponentePaquete`, a `ProductoEnTienda` movement is recorded deducting `cantidadPorPaquete × cantidadCreada` units from outlet stock.
+2. The `Paquete.cantidadCreada` field stores the total number of packages assembled.
+3. The `Paquete.stockDisponible` field tracks how many assembled packages are still unsold.
+
+```prisma
+model Paquete {
+  id              Int           @id @default(autoincrement())
+  nombre          String
+  descripcion     String?
+  clave           String        @unique
+  estado          EstadoPaquete @default(PENDIENTE)
+  cantidadCreada  Int           @default(0)
+  stockDisponible Int           @default(0)
+  creadoPorId     String
+  aprobadoPorId   String?
+  fechaAprobacion DateTime?
+}
+```
+
+## Package components
+
+```prisma
+model ComponentePaquete {
+  id                 Int @id @default(autoincrement())
+  cantidadPorPaquete Int // Units of this product per package
+  paqueteId          Int
+  productoId         Int
+}
+```
+
+## Disassembling a package
+
+If a created package needs to be broken back into its individual components (for example, because a component product sold separately), you can disassemble it:
+
+<Steps>
+  <Step title="Open the package detail">
+    Click the eye icon on any `CREADO` package with `stockDisponible > 0`.
+  </Step>
+  <Step title="Enter quantity to disassemble">
+    In the **Desarmar** input field, enter how many packages to break apart. The value cannot exceed `stockDisponible`.
+  </Step>
+  <Step title="Confirm">
+    Click **Desarmar**. The system deducts the quantity from `stockDisponible`. If all packages are disassembled, the state transitions to `DESARMADO`. Component stock is returned proportionally.
+  </Step>
+</Steps>
+
+<Warning>
+  Disassembly is irreversible for the units disassembled. The `Paquete` record remains visible for audit purposes even after full disassembly.
+</Warning>
+
+## Filtering packages
+
+Use the filter buttons in the right panel to view packages by state:
+
+- **TODOS** — all packages
+- **PENDIENTE** — awaiting physical assembly confirmation
+- **CREADO** — fully assembled and available
+- **DESARMADO** — previously assembled but now broken apart
