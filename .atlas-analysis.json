@@ -1,0 +1,130 @@
+{
+  "projectType": "saas",
+  "projectName": "Stockël",
+  "projectDescription": "A full-stack inventory management system built with Next.js, PostgreSQL, and Docker that supports multi-store stock tracking, purchase orders, sales management, and financial analytics.",
+  "theme": "linden",
+  "primaryColor": "#1c63ec",
+  "lightColor": "#8cb4f4",
+  "darkColor": "#04143c",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "deployment"]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/dashboard",
+              "features/inventory",
+              "features/sales",
+              "features/purchases",
+              "features/finances",
+              "features/suppliers",
+              "features/packages"
+            ]
+          },
+          {
+            "group": "Administration",
+            "pages": [
+              "administration/user-management",
+              "administration/permissions",
+              "administration/notifications"
+            ]
+          },
+          {
+            "group": "Developer Guide",
+            "pages": [
+              "developer/architecture",
+              "developer/local-setup",
+              "developer/database-schema",
+              "developer/cicd"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": ["api/overview"]
+          },
+          {
+            "group": "Authentication",
+            "pages": ["api/auth"]
+          },
+          {
+            "group": "Inventory",
+            "pages": [
+              "api/products",
+              "api/inventory",
+              "api/stores"
+            ]
+          },
+          {
+            "group": "Sales",
+            "pages": [
+              "api/sales",
+              "api/inventory-assignment"
+            ]
+          },
+          {
+            "group": "Purchases",
+            "pages": [
+              "api/purchase-orders",
+              "api/receptions",
+              "api/damage-management"
+            ]
+          },
+          {
+            "group": "Finances",
+            "pages": [
+              "api/finance-reports",
+              "api/payables"
+            ]
+          },
+          {
+            "group": "Suppliers & Users",
+            "pages": [
+              "api/suppliers",
+              "api/users"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-store inventory tracking with real-time stock movements",
+    "Purchase order lifecycle management (draft → sent → received → completed)",
+    "Sales management with manual and automatic inventory assignment",
+    "Financial analytics with cost analysis, pricing, and payables tracking",
+    "Supplier management with RFC, contact info, and purchase history",
+    "Outlet package bundling (Paquetes) with approval workflow",
+    "Damage management and merchandise returns workflow",
+    "Role-based access control with per-page permissions",
+    "AI-powered assistant (Kassia) for inventory queries",
+    "Automated CI/CD deployment via GitHub Actions and Docker"
+  ],
+  "publicApiSurface": [
+    "GET/POST /api/productos — Product catalog CRUD",
+    "GET/POST /api/inventario — Stock movements and queries",
+    "GET/POST /api/ventas — Sales records",
+    "POST /api/ventas/asignacion-manual — Manual inventory assignment",
+    "GET/POST /api/ordenes-compra — Purchase order management",
+    "POST /api/recepciones — Merchandise reception recording",
+    "GET/POST /api/proveedores — Supplier management",
+    "GET/POST /api/paquetes — Outlet package bundling",
+    "GET/POST /api/pasivos — Supplier payment tracking",
+    "GET /api/finanzas/analisis — Financial analysis reports",
+    "GET /api/dashboard — Dashboard summary metrics",
+    "GET/POST /api/usuarios — User and permission management",
+    "POST /api/auth/[...nextauth] — NextAuth authentication",
+    "POST /api/gestion-danos — Damaged goods management",
+    "GET /api/notificaciones — Inventory notifications"
+  ]
+}
