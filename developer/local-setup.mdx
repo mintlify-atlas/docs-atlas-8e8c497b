@@ -48,15 +48,14 @@ Before you start, make sure you have the following installed:
     POSTGRES_USER=stockel_user
     POSTGRES_PASSWORD=password123
     POSTGRES_DB=stockel_db
-    NEXTAUTH_SECRET=local-dev-secret-key-change-this
-    NEXTAUTH_URL=http://localhost:3000
     JWT_SECRET=local-jwt-secret-change-this
+    NEXT_PUBLIC_APP_URL=http://localhost:3000
     ```
 
     See the [environment variables reference](#environment-variables) below for a full description of every variable.
 
     <Warning>
-      Never commit your `.env` file to Git. It is already listed in `.gitignore`. Use strong, randomly generated values for `NEXTAUTH_SECRET` and `JWT_SECRET` in any shared or production environment.
+      Never commit your `.env` file to Git. It is already listed in `.gitignore`. Use a strong, randomly generated value for `JWT_SECRET` in any shared or production environment.
     </Warning>
   </Step>
 
@@ -103,9 +102,7 @@ Before you start, make sure you have the following installed:
 |---|---|---|---|
 | `DATABASE_URL` | Yes | `postgresql://stockel_user:password123@db:5432/stockel_db` | Full PostgreSQL connection string. The hostname `db` matches the Docker Compose service name. |
 | `JWT_SECRET` | Yes | `a-long-random-string` | Secret used to sign and verify the custom JWT session tokens stored in HTTP-only cookies. Falls back to `fallback-secret-change-me-in-production` if unset — **always set this in production**. |
-| `NEXTAUTH_SECRET` | Yes | `another-long-random-string` | Required by the `next-auth` package even when using the custom JWT flow. |
-| `NEXTAUTH_URL` | Yes | `http://localhost:3000` | The canonical URL of the application. Used by NextAuth for callback redirects. |
-| `NEXT_PUBLIC_APP_URL` | No | `http://localhost:3000` | Public base URL exposed to client-side code for building absolute links. |
+| `NEXT_PUBLIC_APP_URL` | No | `http://localhost:3000` | Public base URL exposed to client-side code for building absolute links in emails and redirects. |
 
 ### Database (PostgreSQL container)
 

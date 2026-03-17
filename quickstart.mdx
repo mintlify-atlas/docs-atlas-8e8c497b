@@ -40,9 +40,8 @@ This guide takes you from a fresh checkout to a running local instance. The enti
     POSTGRES_PASSWORD=password123
     POSTGRES_DB=stockel_db
 
-    # NextAuth / JWT
-    NEXTAUTH_SECRET=local-dev-secret-key-change-this
-    NEXTAUTH_URL=http://localhost:3000
+    # JWT secret (signs the HttpOnly session cookie)
+    JWT_SECRET=local-dev-secret-change-this
 
     # App URL (used in emails and links)
     NEXT_PUBLIC_APP_URL=http://localhost:3000
